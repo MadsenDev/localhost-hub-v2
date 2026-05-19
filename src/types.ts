@@ -5,9 +5,11 @@ export interface Service {
   project: string;
   name: string;
   cmd: string;
+  repo_path?: string;
   port: number | null;
   status: ServiceStatus;
   uptime: number;
+  pid?: number | null;
   pkg: string;
   cpu: number;
   mem: number;

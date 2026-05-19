@@ -10,6 +10,7 @@ pub struct DeviceCodeResponse {
     pub device_code: String,
     pub user_code: String,
     pub verification_uri: String,
+    pub verification_uri_complete: Option<String>,
     pub expires_in: u64,
     pub interval: u64,
 }
@@ -38,9 +39,9 @@ pub async fn request_device_code() -> Result<DeviceCodeResponse, String> {
         .await
         .map_err(|e| e.to_string())?;
 
-    let code: DeviceCodeResponse = resp.json().await.map_err(|e| e.to_string())?;
-    let _ = open::that(&code.verification_uri);
-    Ok(code)
+    resp.json::<DeviceCodeResponse>()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Returns (access_token, GitHubUser). The token stays in Rust — callers save it to config.

@@ -82,6 +82,22 @@ export interface EnvEntry {
   redacted: boolean;
 }
 
+export interface ServiceEvent {
+  service_id: string;
+  kind: "started" | "stdout" | "stderr" | "exited" | "error" | "stopped";
+  message: string;
+  pid: number | null;
+  code: number | null;
+}
+
+export interface ManagedServiceInfo {
+  service_id: string;
+  cwd: string;
+  cmd: string;
+  pid: number;
+  started_at_ms: number;
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 export const tauriApi = {
@@ -90,6 +106,15 @@ export const tauriApi = {
   getProcesses: () => invoke<ProcessInfo[]>("get_processes"),
 
   killProcess: (pid: number) => invoke<void>("kill_process", { pid }),
+
+  startService: (serviceId: string, cwd: string, cmd: string) =>
+    invoke<number>("start_service", { serviceId, cwd, cmd }),
+
+  stopManagedService: (serviceId: string) =>
+    invoke<void>("stop_service", { serviceId }),
+
+  listManagedServices: () =>
+    invoke<ManagedServiceInfo[]>("list_managed_services"),
 
   getSystemStats: () => invoke<SystemStats>("get_system_stats"),
 
@@ -110,3 +135,9 @@ export const tauriApi = {
 
   readEnvFile: (path: string) => invoke<EnvEntry[]>("read_env_file", { path }),
 };
+
+export async function listenToServiceEvents(handler: (event: ServiceEvent) => void): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const mod = await import("@tauri-apps/api/event");
+  return mod.listen<ServiceEvent>("service://event", (event) => handler(event.payload));
+}

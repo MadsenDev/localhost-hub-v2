@@ -188,7 +188,10 @@ export function WorkspaceView({
                 <div className="svc-stat-cell"><StatusDot s={s.status} /></div>
                 <div className="svc-name">
                   <span className="name">{s.name}</span>
-                  <span className="sub mono">{s.cmd}</span>
+                  <span className="sub mono">
+                    {s.cmd}
+                    {s.pid ? <span style={{ color: 'var(--fg-3)' }}> · pid {s.pid}</span> : null}
+                  </span>
                 </div>
                 <div className="svc-cmd">{s.cmd}</div>
                 <div className="svc-port">

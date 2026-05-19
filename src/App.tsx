@@ -12,8 +12,9 @@ import { SessionsView } from './view-sessions';
 import { ProjectView } from './view-project';
 import { CommandPalette } from './view-palette';
 import { OnboardingView } from './view-onboarding';
+import { SettingsView } from './view-settings';
 import { githubAuth, type GitHubUser } from './github-auth';
-import { tauriApi, type WorkspaceGroup, type ProcessInfo, type LivePort } from './tauri-api';
+import { listenToServiceEvents, tauriApi, type WorkspaceGroup, type ProcessInfo, type LivePort, type ManagedServiceInfo } from './tauri-api';
 import { Ic } from './icons';
 import { formatDuration } from './utils';
 
@@ -33,6 +34,7 @@ const ACCENT_MAP: Record<string, { blue: string; warm: string }> = {
 };
 
 interface Toast { id: string; msg: string; kind: string; }
+interface ManagedRuntime { status: ServiceStatus; pid: number | null; startedAt: number | null; }
 
 const EMPTY_HUB: HubDataShape = { workspaces: [], projects: {}, activity: [], sessions: [], logSeeds: {}, ports: [], portEdges: [] };
 
@@ -77,7 +79,12 @@ function buildRepos(groups: WorkspaceGroup[], processes: ProcessInfo[], ports: L
 }
 
 /** Derive renderable HubDataShape from user-defined workspaces + live data */
-function buildHubData(stored: StoredWorkspace[], processes: ProcessInfo[], ports: LivePort[]): HubDataShape {
+function buildHubData(
+  stored: StoredWorkspace[],
+  processes: ProcessInfo[],
+  ports: LivePort[],
+  managedRuntimes: Record<string, ManagedRuntime> = {},
+): HubDataShape {
   const pidToPort: Record<number, number> = {};
   for (const p of ports) {
     if (p.pid && !(p.pid in pidToPort)) pidToPort[p.pid] = p.port;
@@ -87,14 +94,18 @@ function buildHubData(stored: StoredWorkspace[], processes: ProcessInfo[], ports
     const services: Service[] = sw.services.map((ss) => {
       const proc = processes.find(p => p.cwd && (p.cwd === ss.repo_path || p.cwd.startsWith(ss.repo_path + '/')));
       const port = proc ? (pidToPort[proc.pid] ?? null) : null;
+      const managedRuntime = managedRuntimes[ss.id];
+      const startedAt = managedRuntime?.startedAt ?? null;
       return {
         id: ss.id,
         project: ss.id,
         name: ss.name,
         cmd: ss.cmd,
+        repo_path: ss.repo_path,
         port,
-        status: (proc ? 'running' : 'stopped') as ServiceStatus,
-        uptime: 0,
+        status: managedRuntime?.status ?? ((proc ? 'running' : 'stopped') as ServiceStatus),
+        uptime: startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0,
+        pid: managedRuntime?.pid ?? proc?.pid ?? null,
         pkg: '',
         cpu: proc?.cpu_usage ?? 0,
         mem: proc ? Math.round(proc.memory_kb / 1024) : 0,
@@ -128,7 +139,7 @@ function buildHubData(stored: StoredWorkspace[], processes: ProcessInfo[], ports
 export default function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [onboarding, setOnboarding] = React.useState<boolean | null>(null);
-  const [, setGithubUser] = React.useState<GitHubUser | null>(null);
+  const [githubUser, setGithubUser] = React.useState<GitHubUser | null>(null);
 
   React.useEffect(() => {
     githubAuth.loadConfig().then((cfg) => {
@@ -160,11 +171,14 @@ export default function App() {
   const [storedWorkspaces, setStoredWorkspaces] = React.useState<StoredWorkspace[]>([]);
   const liveGroupsRef = React.useRef<WorkspaceGroup[]>([]);
   const storedWsRef = React.useRef<StoredWorkspace[]>([]);
+  const managedRuntimesRef = React.useRef<Record<string, ManagedRuntime>>({});
   const [view, setView] = React.useState("home");
   const [ws, setWs] = React.useState("");
   const [project, setProject] = React.useState("");
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [toasts, setToasts] = React.useState<Toast[]>([]);
+  const [workspaceRefreshKey, setWorkspaceRefreshKey] = React.useState(0);
+  const [, setManagedRuntimes] = React.useState<Record<string, ManagedRuntime>>({});
 
   const [logs, setLogs] = React.useState<LogLine[]>([]);
   const [sources, setSources] = React.useState<Record<string, boolean>>({});
@@ -198,19 +212,21 @@ export default function App() {
     }
 
     async function refreshLive() {
-      const [processes, ports] = await Promise.all([
+      const [processes, ports, managed] = await Promise.all([
         tauriApi.getProcesses().catch(() => [] as ProcessInfo[]),
         tauriApi.scanPorts().catch(() => [] as LivePort[]),
+        tauriApi.listManagedServices().catch(() => [] as ManagedServiceInfo[]),
       ]);
       if (cancelled) return;
+      syncManagedServiceRuntimes(managed);
       setRepos(buildRepos(liveGroupsRef.current, processes, ports));
-      setData(buildHubData(storedWsRef.current, processes, ports));
+      setData(buildHubData(storedWsRef.current, processes, ports, managedRuntimesRef.current));
     }
 
     loadGroups().then(refreshLive);
     const id = setInterval(refreshLive, 5000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [onboarding]);
+  }, [onboarding, workspaceRefreshKey]);
 
   const allServices = React.useMemo(
     () => data.workspaces.flatMap((w) => w.services.map((s) => ({ ...s, _ws: w.id }))),
@@ -240,6 +256,31 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      const runtimes = managedRuntimesRef.current;
+      if (!Object.values(runtimes).some((runtime) => runtime.startedAt)) return;
+      const now = Date.now();
+      setData((d) => ({
+        ...d,
+        workspaces: d.workspaces.map((w) => ({
+          ...w,
+          services: w.services.map((s) => {
+            const runtime = runtimes[s.id];
+            if (!runtime?.startedAt) return s;
+            return {
+              ...s,
+              pid: runtime.pid,
+              status: runtime.status,
+              uptime: Math.max(0, Math.floor((now - runtime.startedAt) / 1000)),
+            };
+          }),
+        })),
+      }));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const currentWs = data.workspaces.find((w) => w.id === ws) ?? data.workspaces[0] ?? undefined;
 
   function toast(msg: string, kind = "info") {
@@ -256,6 +297,30 @@ export default function App() {
       return next.length > 600 ? next.slice(-600) : next;
     });
   }
+
+  React.useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listenToServiceEvents((event) => {
+      const kind = event.kind === "stderr" || event.kind === "error" ? "error" : event.kind === "started" ? "ok" : "info";
+      pushLog(event.service_id, event.message, kind);
+      if (event.kind === "started") {
+        const svc = storedWsRef.current.flatMap((w) => w.services.map((s) => ({ ...s, wsId: w.id }))).find((s) => s.id === event.service_id);
+        if (svc) setManagedServiceStatus(svc.wsId, event.service_id, "running", event.pid ?? null);
+      }
+      if (event.kind === "stopped" || event.kind === "exited" || event.kind === "error") {
+        const svc = storedWsRef.current.flatMap((w) => w.services.map((s) => ({ ...s, wsId: w.id }))).find((s) => s.id === event.service_id);
+        if (svc) setManagedServiceStatus(svc.wsId, event.service_id, event.kind === "error" ? "failed" : "stopped", event.pid ?? null);
+      }
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   async function saveWorkspaces(next: StoredWorkspace[]) {
     storedWsRef.current = next;
@@ -317,32 +382,102 @@ export default function App() {
     }));
   }
 
-  function startService(wsId: string, svcId: string) {
+  function setManagedServiceStatus(wsId: string, svcId: string, status: ServiceStatus, pid?: number | null) {
+    const existing = managedRuntimesRef.current[svcId];
+    const running = status === "starting" || status === "running";
+    const nextRuntime: ManagedRuntime = {
+      status,
+      pid: pid ?? existing?.pid ?? null,
+      startedAt: running ? (existing?.startedAt ?? Date.now()) : null,
+    };
+    managedRuntimesRef.current = { ...managedRuntimesRef.current, [svcId]: nextRuntime };
+    setManagedRuntimes(managedRuntimesRef.current);
+    setData((d) => ({
+      ...d,
+      workspaces: d.workspaces.map((w) => w.id !== wsId ? w : {
+        ...w,
+        services: w.services.map((s) => s.id !== svcId ? s : {
+          ...s,
+          status,
+          pid: nextRuntime.pid,
+          uptime: nextRuntime.startedAt ? Math.max(0, Math.floor((Date.now() - nextRuntime.startedAt) / 1000)) : 0,
+        }),
+      }),
+    }));
+  }
+
+  function syncManagedServiceRuntimes(managed: ManagedServiceInfo[]) {
+    if (managed.length === 0 && Object.keys(managedRuntimesRef.current).length === 0) return;
+    const managedById = new Map(managed.map((service) => [service.service_id, service]));
+    const next: Record<string, ManagedRuntime> = {};
+
+    for (const [svcId, runtime] of Object.entries(managedRuntimesRef.current)) {
+      const service = managedById.get(svcId);
+      if (!service) {
+        if (runtime.status === "starting" || runtime.status === "running") {
+          next[svcId] = { ...runtime, status: "stopped", pid: runtime.pid, startedAt: null };
+        } else {
+          next[svcId] = runtime;
+        }
+        continue;
+      }
+      next[svcId] = {
+        status: "running",
+        pid: service.pid,
+        startedAt: service.started_at_ms,
+      };
+    }
+
+    for (const service of managed) {
+      if (next[service.service_id]) continue;
+      next[service.service_id] = {
+        status: "running",
+        pid: service.pid,
+        startedAt: service.started_at_ms,
+      };
+    }
+
+    managedRuntimesRef.current = next;
+    setManagedRuntimes(next);
+  }
+
+  async function startService(wsId: string, svcId: string) {
     const svc = data.workspaces.find((w) => w.id === wsId)?.services.find((s) => s.id === svcId);
     if (!svc) return;
-    setServiceStatus(wsId, svcId, "starting");
+    setManagedServiceStatus(wsId, svcId, "starting");
     pushLog(svcId, `> ${svc.cmd}`, "info");
-    pushLog(svcId, "starting service...", "warn");
     toast(`Starting ${svc.name}`, "info");
-    setTimeout(() => {
-      setServiceStatus(wsId, svcId, "running");
-      pushLog(svcId, svc.port ? `ready - listening on http://localhost:${svc.port}` : "ready", "ok");
-      toast(`${svc.name} is up`, "ok");
-    }, 1600 + Math.random() * 800);
+    try {
+      if (!svc.repo_path) throw new Error("Missing repo path for service.");
+      await tauriApi.startService(svc.id, svc.repo_path, svc.cmd);
+    } catch (err) {
+      setManagedServiceStatus(wsId, svcId, "failed");
+      pushLog(svcId, String(err), "error");
+      toast(`Failed to start ${svc.name}`, "error");
+    }
   }
 
-  function stopService(wsId: string, svcId: string) {
+  async function stopService(wsId: string, svcId: string) {
     const svc = data.workspaces.find((w) => w.id === wsId)?.services.find((s) => s.id === svcId);
     if (!svc) return;
-    setServiceStatus(wsId, svcId, "stopped");
-    pushLog(svcId, "received SIGTERM, cleaning up...", "warn");
-    pushLog(svcId, "exited cleanly (0)", "info");
-    toast(`Stopped ${svc.name}`, "info");
+    try {
+      try {
+        await tauriApi.stopManagedService(svc.id);
+      } catch (err) {
+        if (!svc.pid) throw err;
+        await tauriApi.killProcess(svc.pid);
+      }
+      setManagedServiceStatus(wsId, svcId, "stopped");
+      toast(`Stopped ${svc.name}`, "info");
+    } catch (err) {
+      pushLog(svcId, String(err), "error");
+      toast(`Failed to stop ${svc.name}`, "error");
+    }
   }
 
-  function restartService(wsId: string, svcId: string) {
-    stopService(wsId, svcId);
-    setTimeout(() => startService(wsId, svcId), 400);
+  async function restartService(wsId: string, svcId: string) {
+    await stopService(wsId, svcId);
+    window.setTimeout(() => startService(wsId, svcId), 400);
   }
 
   function startAll(wsId: string) {
@@ -492,13 +627,19 @@ export default function App() {
       </div></div>
     );
     if (view === "settings") return (
-      <div className="view"><div className="view-inner">
-        <div className="empty">
-          <Ic.Settings size={36} />
-          <div style={{ marginTop: 10, fontFamily: "var(--font-mono)" }}>Settings panel</div>
-          <div style={{ color: "var(--fg-4)", marginTop: 6, fontSize: 12 }}>Use the <strong>Tweaks</strong> toolbar toggle to explore visual variations.</div>
-        </div>
-      </div></div>
+      <SettingsView
+        githubUser={githubUser}
+        setGithubUser={setGithubUser}
+        repos={repos}
+        storedWorkspaces={storedWorkspaces}
+        tweaks={t}
+        setTweak={(key, value) => setTweak(key, value)}
+        onConfigChanged={() => setWorkspaceRefreshKey((key) => key + 1)}
+        onCreateWorkspace={createWorkspace}
+        onUpdateWorkspace={updateWorkspace}
+        onDeleteWorkspace={deleteWorkspace}
+        onOpenRepos={() => setView("repos")}
+      />
     );
     return null;
   })();

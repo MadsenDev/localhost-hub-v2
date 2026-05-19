@@ -5,12 +5,14 @@ mod git;
 mod workspace;
 mod config;
 mod github;
+mod services;
 
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(services::ServiceManager::default())
         .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -25,6 +27,9 @@ pub fn run() {
             commands::scan_ports,
             commands::get_processes,
             commands::kill_process,
+            commands::start_service,
+            commands::stop_service,
+            commands::list_managed_services,
             commands::open_in_editor,
             commands::open_url,
             commands::scan_workspaces,

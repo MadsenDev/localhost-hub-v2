@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 use crate::ports::{scan_live_ports, LivePort};
 use crate::processes::{get_dev_processes, get_system_stats as sys_stats, ProcessInfo, SystemStats};
@@ -6,6 +6,7 @@ use crate::git::{get_git_status as git_status, GitStatus};
 use crate::workspace::{scan_for_projects, scan_as_workspace_groups, DetectedProject, WorkspaceGroup};
 use crate::config::{AppConfig, load as load_cfg, save as save_cfg};
 use crate::github::{request_device_code, poll_token, DeviceCodeResponse, GitHubUser};
+use crate::services::{ManagedServiceInfo, ServiceManager};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,33 @@ pub fn kill_process(pid: u32) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn start_service(
+    app: AppHandle,
+    services: State<ServiceManager>,
+    service_id: String,
+    cwd: String,
+    cmd: String,
+) -> Result<u32, String> {
+    services.start(app, service_id, cwd, cmd)
+}
+
+#[tauri::command]
+pub fn stop_service(
+    app: AppHandle,
+    services: State<ServiceManager>,
+    service_id: String,
+) -> Result<(), String> {
+    services.stop(app, service_id)
+}
+
+#[tauri::command]
+pub fn list_managed_services(
+    services: State<ServiceManager>,
+) -> Result<Vec<ManagedServiceInfo>, String> {
+    services.list()
 }
 
 // ── System stats ──────────────────────────────────────────────────────────────
@@ -153,7 +181,10 @@ pub fn open_in_editor(path: String, _app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
-    open::that(&url).map_err(|e| e.to_string())
+    std::thread::spawn(move || {
+        let _ = open::that(url);
+    });
+    Ok(())
 }
 
 // ── Env file ──────────────────────────────────────────────────────────────────

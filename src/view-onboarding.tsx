@@ -250,17 +250,26 @@ function GitHubAction({
   if (auth.phase === 'pending' || auth.phase === 'polling') {
     const code = auth.code;
     const polling = auth.phase === 'polling';
+    const verificationUrl = code.verification_uri_complete ?? code.verification_uri;
+    const openGitHub = () => {
+      tauriApi.openUrl(verificationUrl).catch(() => {});
+    };
     return (
       <div className="ob-device-flow">
         <div className="ob-device-step">
           <span className="ob-step-num">1</span>
-          <span>Open <a href={code.verification_uri} target="_blank" rel="noreferrer" className="ob-link" onClick={(e) => e.preventDefault()}>github.com/login/device</a></span>
+          <span>Open GitHub authorization</span>
         </div>
         <div className="ob-device-step">
           <span className="ob-step-num">2</span>
           <span>Enter this code:</span>
         </div>
         <div className="ob-user-code">{code.user_code}</div>
+        <div className="ob-device-actions">
+          <button className="btn sm primary" type="button" onClick={openGitHub}>
+            Open GitHub
+          </button>
+        </div>
         {!polling ? (
           <button className="btn sm primary" style={{ width: '100%', justifyContent: 'center', marginTop: 10 }} onClick={() => onBeginPoll(code)}>
             I've authorized it
