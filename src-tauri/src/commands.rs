@@ -5,7 +5,7 @@ use crate::processes::{get_dev_processes, get_system_stats as sys_stats, Process
 use crate::git::{get_git_status as git_status, GitStatus};
 use crate::workspace::{scan_for_projects, scan_as_workspace_groups, DetectedProject, WorkspaceGroup};
 use crate::config::{AppConfig, load as load_cfg, save as save_cfg};
-use crate::github::{request_device_code, poll_token, DeviceCodeResponse, GitHubUser};
+use crate::github::{fetch_repos, request_device_code, poll_token, DeviceCodeResponse, GitHubRepo, GitHubUser};
 use crate::services::{ManagedServiceInfo, ServiceManager};
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -40,6 +40,13 @@ pub async fn github_poll_token(app: AppHandle, device_code: String) -> Result<Gi
     });
     save_cfg(&app, &cfg)?;
     Ok(user)
+}
+
+#[tauri::command]
+pub async fn github_list_repos(app: AppHandle) -> Result<Vec<GitHubRepo>, String> {
+    let cfg = load_cfg(&app)?.ok_or_else(|| "GitHub is not connected.".to_string())?;
+    let token = cfg.github_token.ok_or_else(|| "GitHub is not connected.".to_string())?;
+    fetch_repos(&token).await
 }
 
 // ── Ports ─────────────────────────────────────────────────────────────────────

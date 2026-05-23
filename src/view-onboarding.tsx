@@ -99,6 +99,12 @@ export function OnboardingView({ onComplete }: OnboardingProps) {
       github_user: user,
       workspace_roots: workspaceRoots,
       user_workspaces: [],
+      appearance: {
+        theme: 'charcoal',
+        accent: '#4a78c4',
+        density: 'balanced',
+        sidebar: 'labeled',
+      },
     });
     onComplete(user, workspaceRoots);
   }

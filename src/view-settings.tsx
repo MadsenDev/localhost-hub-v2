@@ -40,6 +40,12 @@ const defaultConfig = (): AppConfig => ({
   github_user: null,
   workspace_roots: [],
   user_workspaces: [],
+  appearance: {
+    theme: 'charcoal',
+    accent: '#4a78c4',
+    density: 'balanced',
+    sidebar: 'labeled',
+  },
 });
 
 const accentOptions = [

@@ -1,4 +1,4 @@
-export type ServiceStatus = 'running' | 'starting' | 'stopped' | 'failed';
+export type ServiceStatus = 'running' | 'starting' | 'stopped' | 'failed' | 'exited' | 'crashed' | 'restarting';
 
 export interface Service {
   id: string;

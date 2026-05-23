@@ -13,6 +13,27 @@ pub struct AppConfig {
     pub workspace_roots: Vec<String>,
     #[serde(default)]
     pub user_workspaces: Vec<StoredWorkspace>,
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppearanceConfig {
+    pub theme: String,
+    pub accent: String,
+    pub density: String,
+    pub sidebar: String,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            theme: "charcoal".to_string(),
+            accent: "#4a78c4".to_string(),
+            density: "balanced".to_string(),
+            sidebar: "labeled".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

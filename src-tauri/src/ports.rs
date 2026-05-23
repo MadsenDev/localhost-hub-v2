@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::net::TcpListener;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,9 +81,4 @@ fn extract_pid_name(line: &str) -> (Option<u32>, Option<String>) {
         return (pid, Some(name));
     }
     (None, None)
-}
-
-/// Quick check whether a specific port is open on localhost.
-pub fn is_port_open(port: u16) -> bool {
-    TcpListener::bind(("127.0.0.1", port)).is_err()
 }

@@ -22,6 +22,20 @@ pub struct GitHubUser {
     pub avatar_url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubRepo {
+    pub name: String,
+    pub full_name: String,
+    pub html_url: String,
+    pub clone_url: String,
+    pub ssh_url: String,
+    pub private: bool,
+    pub description: Option<String>,
+    pub default_branch: String,
+    pub updated_at: String,
+    pub language: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct DeviceTokenResponse {
     access_token: Option<String>,
@@ -83,4 +97,27 @@ pub async fn fetch_user(token: &str) -> Result<GitHubUser, String> {
         .map_err(|e| e.to_string())?;
 
     resp.json::<GitHubUser>().await.map_err(|e| e.to_string())
+}
+
+pub async fn fetch_repos(token: &str) -> Result<Vec<GitHubRepo>, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.github.com/user/repos")
+        .query(&[
+            ("per_page", "100"),
+            ("sort", "updated"),
+            ("affiliation", "owner,collaborator,organization_member"),
+        ])
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "localhost-hub")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("GitHub repos request failed: {}", resp.status()));
+    }
+
+    resp.json::<Vec<GitHubRepo>>().await.map_err(|e| e.to_string())
 }

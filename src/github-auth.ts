@@ -36,6 +36,12 @@ export interface AppConfig {
   github_user: GitHubUser | null;
   workspace_roots: string[];
   user_workspaces: StoredWorkspace[];
+  appearance: {
+    theme: string;
+    accent: string;
+    density: string;
+    sidebar: string;
+  };
 }
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

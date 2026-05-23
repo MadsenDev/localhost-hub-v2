@@ -98,6 +98,19 @@ export interface ManagedServiceInfo {
   started_at_ms: number;
 }
 
+export interface GitHubRepo {
+  name: string;
+  full_name: string;
+  html_url: string;
+  clone_url: string;
+  ssh_url: string;
+  private: boolean;
+  description: string | null;
+  default_branch: string;
+  updated_at: string;
+  language: string | null;
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 export const tauriApi = {
@@ -119,6 +132,8 @@ export const tauriApi = {
   getSystemStats: () => invoke<SystemStats>("get_system_stats"),
 
   getGitStatus: (path: string) => invoke<GitStatus | null>("get_git_status", { path }),
+
+  listGitHubRepos: () => invoke<GitHubRepo[]>("github_list_repos"),
 
   scanWorkspaces: (root: string, maxDepth?: number) =>
     invoke<DetectedProject[]>("scan_workspaces", { root, maxDepth }),

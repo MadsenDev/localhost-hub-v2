@@ -581,8 +581,11 @@ html[data-sidebar="collapsed"] .sb-ws .count { display: none; }
 }
 .status-dot.running  { background: var(--ok);    box-shadow: 0 0 0 3px var(--ok-soft), 0 0 10px var(--ok); }
 .status-dot.starting { background: var(--warn);  box-shadow: 0 0 0 3px var(--warn-soft); animation: pulse 1.2s ease-in-out infinite; }
+.status-dot.restarting { background: var(--warn);  box-shadow: 0 0 0 3px var(--warn-soft); animation: pulse 1.2s ease-in-out infinite; }
 .status-dot.failed   { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.status-dot.crashed  { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 .status-dot.stopped  { background: var(--idle); }
+.status-dot.exited   { background: var(--idle); }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -804,7 +807,9 @@ html[data-sidebar="collapsed"] .sb-ws .count { display: none; }
 }
 .svc-row.status-running::before  { background: var(--ok); }
 .svc-row.status-starting::before { background: var(--warn); }
+.svc-row.status-restarting::before { background: var(--warn); }
 .svc-row.status-failed::before   { background: var(--danger); }
+.svc-row.status-crashed::before  { background: var(--danger); }
 
 .svc-row:hover { background: var(--bg-2); }
 .svc-row:last-child { border-bottom: 0; }

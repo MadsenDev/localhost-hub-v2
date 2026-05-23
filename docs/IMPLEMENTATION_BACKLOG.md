@@ -13,7 +13,7 @@ This backlog captures the current product direction in implementation order. Kee
 - [x] Show initial PID and real uptime for managed services.
 - [x] Add fallback stop-by-PID for services detected from process scanning but not started by the manager.
 - [x] Add Rust query command for currently managed services so frontend state can recover after refresh/missed events.
-- [ ] Track full service lifecycle states: stopped, starting, running, crashed, exited, restarting.
+- [x] Track service lifecycle states: stopped, starting, running, failed, crashed, exited, restarting.
 - [ ] Track cwd, command, memory, CPU, and detected ports per managed service in the UI model.
 - [ ] Implement robust restart and kill behavior.
 - [ ] Reconnect UI state to already-running matching processes where practical.
@@ -28,10 +28,10 @@ This backlog captures the current product direction in implementation order. Kee
 
 ### Persist app preferences
 
-- [ ] Persist theme in config.
-- [ ] Persist density in config.
-- [ ] Persist accent color in config.
-- [ ] Persist sidebar width in config.
+- [x] Persist theme in config.
+- [x] Persist density in config.
+- [x] Persist accent color in config.
+- [x] Persist sidebar width in config.
 - [ ] Add editor path setting.
 - [ ] Add terminal path setting.
 
@@ -48,7 +48,7 @@ This backlog captures the current product direction in implementation order. Kee
 
 - [x] Decide whether `dist/` should be committed or ignored consistently.
 - [x] Stop tracking generated `dist/` and `node_modules/` files while keeping them ignored and present locally.
-- [ ] Remove or use unused `is_port_open`.
+- [x] Remove or use unused `is_port_open`.
 - [ ] Audit placeholder views and mark future-only surfaces clearly.
 - [x] Keep generated build artifacts out of normal development diffs where possible.
 

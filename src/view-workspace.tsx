@@ -207,7 +207,7 @@ export function WorkspaceView({
                       <button className="btn sm ghost" title="Restart" onClick={() => onRestartSvc(w.id, s.id)}><Ic.Reload size={11} /></button>
                       <button className="btn sm ghost danger" title="Stop" onClick={() => onStopSvc(w.id, s.id)}><Ic.Stop size={11} /></button>
                     </>
-                  ) : s.status === 'failed' ? (
+                  ) : s.status === 'failed' || s.status === 'crashed' || s.status === 'exited' ? (
                     <>
                       <button className="btn sm danger" title="Logs" onClick={() => onOpenLogs(s.id)}><Ic.Logs size={11} /> Inspect</button>
                       <button className="btn sm ghost" title="Retry" onClick={() => onRestartSvc(w.id, s.id)}><Ic.Reload size={11} /></button>

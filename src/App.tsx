@@ -6,6 +6,7 @@ import { Sidebar } from './sidebar';
 import { HomeView } from './view-home';
 import { WorkspaceView } from './view-workspace';
 import { ReposView } from './view-repos';
+import { GitHubReposView } from './view-github-repos';
 import { PortsView } from './view-ports';
 import { LogsView } from './view-logs';
 import { SessionsView } from './view-sessions';
@@ -35,6 +36,7 @@ const ACCENT_MAP: Record<string, { blue: string; warm: string }> = {
 
 interface Toast { id: string; msg: string; kind: string; }
 interface ManagedRuntime { status: ServiceStatus; pid: number | null; startedAt: number | null; }
+type AppearanceKey = "theme" | "accent" | "density" | "sidebar";
 
 const EMPTY_HUB: HubDataShape = { workspaces: [], projects: {}, activity: [], sessions: [], logSeeds: {}, ports: [], portEdges: [] };
 
@@ -145,6 +147,14 @@ export default function App() {
     githubAuth.loadConfig().then((cfg) => {
       if (cfg && cfg.onboarding_complete) {
         setGithubUser(cfg.github_user ?? null);
+        if (cfg.appearance) {
+          setTweak({
+            theme: cfg.appearance.theme || TWEAK_DEFAULTS.theme,
+            accent: cfg.appearance.accent || TWEAK_DEFAULTS.accent,
+            density: cfg.appearance.density || TWEAK_DEFAULTS.density,
+            sidebar: cfg.appearance.sidebar || TWEAK_DEFAULTS.sidebar,
+          });
+        }
         setOnboarding(false);
       } else {
         setOnboarding(true);
@@ -289,6 +299,22 @@ export default function App() {
     setTimeout(() => setToasts((ts) => ts.filter((x) => x.id !== id)), 3200);
   }
 
+  function updateAppearance(key: AppearanceKey, value: string) {
+    setTweak(key, value);
+    const nextAppearance = {
+      theme: key === "theme" ? String(value) : t.theme,
+      accent: key === "accent" ? String(value) : t.accent,
+      density: key === "density" ? String(value) : t.density,
+      sidebar: key === "sidebar" ? String(value) : t.sidebar,
+    };
+    githubAuth.loadConfig()
+      .then((cfg) => {
+        if (!cfg) return;
+        return githubAuth.saveConfig({ ...cfg, appearance: nextAppearance });
+      })
+      .catch(() => {});
+  }
+
   function pushLog(srcId: string, text: string, kind: string) {
     const ts = new Date().toLocaleTimeString("en-GB", { hour12: false }).slice(0, 8) + "." + String(Math.floor(Math.random() * 999)).padStart(3, "0");
     const safeKind = (kind || "info") as LogLine["kind"];
@@ -310,7 +336,12 @@ export default function App() {
       }
       if (event.kind === "stopped" || event.kind === "exited" || event.kind === "error") {
         const svc = storedWsRef.current.flatMap((w) => w.services.map((s) => ({ ...s, wsId: w.id }))).find((s) => s.id === event.service_id);
-        if (svc) setManagedServiceStatus(svc.wsId, event.service_id, event.kind === "error" ? "failed" : "stopped", event.pid ?? null);
+        const status: ServiceStatus = event.kind === "error"
+          ? "failed"
+          : event.kind === "exited"
+            ? event.code && event.code !== 0 ? "crashed" : "exited"
+            : "stopped";
+        if (svc) setManagedServiceStatus(svc.wsId, event.service_id, status, event.pid ?? null);
       }
     }).then((dispose) => {
       if (cancelled) dispose();
@@ -376,7 +407,7 @@ export default function App() {
         ...w,
         services: w.services.map((s) => s.id !== svcId ? s : {
           ...s, status,
-          uptime: status === "stopped" || status === "failed" ? 0 : s.uptime,
+          uptime: ["stopped", "failed", "exited", "crashed"].includes(status) ? 0 : s.uptime,
         }),
       }),
     }));
@@ -384,7 +415,7 @@ export default function App() {
 
   function setManagedServiceStatus(wsId: string, svcId: string, status: ServiceStatus, pid?: number | null) {
     const existing = managedRuntimesRef.current[svcId];
-    const running = status === "starting" || status === "running";
+    const running = status === "starting" || status === "running" || status === "restarting";
     const nextRuntime: ManagedRuntime = {
       status,
       pid: pid ?? existing?.pid ?? null,
@@ -476,6 +507,7 @@ export default function App() {
   }
 
   async function restartService(wsId: string, svcId: string) {
+    setManagedServiceStatus(wsId, svcId, "restarting");
     await stopService(wsId, svcId);
     window.setTimeout(() => startService(wsId, svcId), 400);
   }
@@ -493,7 +525,7 @@ export default function App() {
     const w = data.workspaces.find((x) => x.id === wsId);
     if (!w) return;
     w.services.forEach((s) => {
-      if (s.status === "running" || s.status === "starting") stopService(wsId, s.id);
+      if (s.status === "running" || s.status === "starting" || s.status === "restarting") stopService(wsId, s.id);
     });
     toast(`Stopping workspace ${w.name}`, "warn");
   }
@@ -539,6 +571,7 @@ export default function App() {
         onCreateWorkspace={createWorkspace}
       />
     );
+    if (view === "github-repos") return <GitHubReposView />;
     if (view === "workspace" && !currentWs) return (
       <WorkspaceView
         workspace={null}
@@ -633,7 +666,7 @@ export default function App() {
         repos={repos}
         storedWorkspaces={storedWorkspaces}
         tweaks={t}
-        setTweak={(key, value) => setTweak(key, value)}
+        setTweak={(key, value) => updateAppearance(key as AppearanceKey, String(value))}
         onConfigChanged={() => setWorkspaceRefreshKey((key) => key + 1)}
         onCreateWorkspace={createWorkspace}
         onUpdateWorkspace={updateWorkspace}
@@ -683,7 +716,7 @@ export default function App() {
         currentWs={currentWs}
         view={view}
         onOpenPalette={() => setPaletteOpen(true)}
-        onToggleSidebar={() => setTweak("sidebar", t.sidebar === "collapsed" ? "labeled" : t.sidebar === "labeled" ? "wide" : "collapsed")}
+        onToggleSidebar={() => updateAppearance("sidebar", t.sidebar === "collapsed" ? "labeled" : t.sidebar === "labeled" ? "wide" : "collapsed")}
         pulse={pulse}
       />
       <div className="app-body">
@@ -719,13 +752,13 @@ export default function App() {
               { value: "midnight", label: "Midnight" },
               { value: "espresso", label: "Espresso" },
             ]}
-            onChange={(v) => setTweak("theme", v)}
+            onChange={(v) => updateAppearance("theme", v)}
           />
           <TweakColor
             label="Accent"
             value={t.accent}
             options={["#4a78c4", "#d9854f", "#8a78ec", "#54a892"]}
-            onChange={(v) => setTweak("accent", v)}
+            onChange={(v) => updateAppearance("accent", v)}
           />
         </TweakSection>
         <TweakSection label="Layout">
@@ -737,7 +770,7 @@ export default function App() {
               { value: "balanced",   label: "Default" },
               { value: "dense",      label: "Compact" },
             ]}
-            onChange={(v) => setTweak("density", v)}
+            onChange={(v) => updateAppearance("density", v)}
           />
           <TweakRadio
             label="Sidebar"
@@ -747,7 +780,7 @@ export default function App() {
               { value: "labeled",   label: "Default" },
               { value: "wide",      label: "Wide" },
             ]}
-            onChange={(v) => setTweak("sidebar", v)}
+            onChange={(v) => updateAppearance("sidebar", v)}
           />
         </TweakSection>
         <TweakSection label="Try it">
