@@ -14,16 +14,16 @@ This backlog captures the current product direction in implementation order. Kee
 - [x] Add fallback stop-by-PID for services detected from process scanning but not started by the manager.
 - [x] Add Rust query command for currently managed services so frontend state can recover after refresh/missed events.
 - [x] Track service lifecycle states: stopped, starting, running, failed, crashed, exited, restarting.
-- [ ] Track cwd, command, memory, CPU, and detected ports per managed service in the UI model.
-- [ ] Implement robust restart and kill behavior.
-- [ ] Reconnect UI state to already-running matching processes where practical.
-- [ ] Add persisted service run history/state as needed.
+- [x] Track cwd, command, memory, CPU, and detected ports per managed service in the UI model.
+- [x] Implement robust restart and kill behavior.
+- [x] Reconnect UI state to already-running matching processes where practical.
+- [x] Add persisted service run history/state as needed.
 
 ### Real logs
 
 - [x] Stream stdout/stderr from Rust to frontend.
 - [x] Store per-service logs in frontend state.
-- [ ] Add workspace-combined logs.
+- [x] Add workspace-combined logs.
 - [ ] Add timestamps, filtering, search, error highlighting, copy/export.
 
 ### Persist app preferences
@@ -37,19 +37,19 @@ This backlog captures the current product direction in implementation order. Kee
 
 ### Project detail and metadata
 
-- [ ] Populate `data.projects` from scanned repos.
-- [ ] Make Project Detail work with live scanned data.
+- [x] Populate `data.projects` from scanned repos.
+- [x] Make Project Detail work with live scanned data.
 - [ ] Add project tabs: Overview, Scripts, Git, GitHub, Ports, Logs, Health.
-- [ ] Detect README/license files.
-- [ ] Detect Docker/devcontainer files.
-- [ ] Detect languages and dependency manifests.
+- [x] Detect README/license files.
+- [x] Detect Docker/devcontainer files.
+- [x] Detect languages and dependency manifests.
 
 ### Project structure cleanup
 
 - [x] Decide whether `dist/` should be committed or ignored consistently.
 - [x] Stop tracking generated `dist/` and `node_modules/` files while keeping them ignored and present locally.
 - [x] Remove or use unused `is_port_open`.
-- [ ] Audit placeholder views and mark future-only surfaces clearly.
+- [x] Audit placeholder views and mark future-only surfaces clearly.
 - [x] Keep generated build artifacts out of normal development diffs where possible.
 
 ## Phase 2: Git Foundation
@@ -68,14 +68,14 @@ This backlog captures the current product direction in implementation order. Kee
 
 ### Git status
 
-- [ ] Show clean/dirty state.
+- [x] Show clean/dirty state.
 - [ ] Show staged files.
 - [ ] Show unstaged files.
 - [ ] Show untracked files.
 - [ ] Show conflicted files.
 - [ ] Optionally show ignored files.
 - [ ] Show file counts and change type indicators.
-- [ ] Show ahead/behind counts.
+- [x] Show ahead/behind counts.
 
 ### Staging and commits
 
@@ -101,7 +101,7 @@ This backlog captures the current product direction in implementation order. Kee
 
 ### Branches and remotes
 
-- [ ] Show current branch.
+- [x] Show current branch.
 - [ ] Switch branch.
 - [ ] Create branch.
 - [ ] Delete branch.
@@ -130,7 +130,7 @@ This backlog captures the current product direction in implementation order. Kee
 - [ ] Show open issues.
 - [ ] Show workflow failures.
 - [ ] Show repo visibility.
-- [ ] Open repo in browser.
+- [x] Open repo in browser.
 - [ ] Open PR in browser.
 - [ ] Copy repo URL.
 - [ ] Create PR later.

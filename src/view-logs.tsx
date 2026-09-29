@@ -19,6 +19,8 @@ export function LogsView({ workspaces, services, logs, sources, toggleSource, se
   const bodyRef = React.useRef<HTMLDivElement>(null);
   const wsById = Object.fromEntries(workspaces.map((w) => [w.id, w]));
   const svcById = Object.fromEntries(services.map((s) => [s.id, s]));
+  const knownSources = new Set(services.map((service) => service.id));
+  const otherSources = Array.from(new Set(logs.map((line) => line.src).filter((source) => !knownSources.has(source))));
 
   React.useEffect(() => {
     if (autoscroll && bodyRef.current) {
@@ -27,7 +29,7 @@ export function LogsView({ workspaces, services, logs, sources, toggleSource, se
   }, [logs.length, autoscroll]);
 
   const filtered = logs.filter((l) => {
-    if (!sources[l.src]) return false;
+    if (sources[l.src] === false) return false;
     if (!search) return true;
     return l.msg.toLowerCase().includes(search.toLowerCase());
   });
@@ -76,6 +78,24 @@ export function LogsView({ workspaces, services, logs, sources, toggleSource, se
               })}
             </div>
           ))}
+          {otherSources.length > 0 && (
+            <div>
+              <div style={{ padding: "10px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--fg-4)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
+                Direct runs
+              </div>
+              {otherSources.map((source) => {
+                const active = sources[source] !== false;
+                const count = logs.filter((line) => line.src === source).length;
+                return (
+                  <div key={source} className={"logs-filter-row" + (active ? " active" : " muted")} onClick={() => toggleSource(source)}>
+                    <span className="ck">{active ? <Ic.Check size={12} /> : <Ic.Dot size={6} />}</span>
+                    <span className="name mono" style={{ fontSize: 12 }}>{source.split("::").pop()}</span>
+                    <span className="count">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="logs-stream">
@@ -89,7 +109,9 @@ export function LogsView({ workspaces, services, logs, sources, toggleSource, se
             </div>
             <div className="right">
               <button className="btn sm ghost" onClick={() => setAutoscroll(!autoscroll)}>{autoscroll ? <><Ic.Pause size={10} /> Unlock</> : <><Ic.Play size={10} /> Tail</>}</button>
-              <button className="btn sm ghost"><Ic.External size={11} /></button>
+              <button className="btn sm ghost" onClick={() => navigator.clipboard.writeText(filtered.map((line) => `${line.ts} ${line.src} ${line.msg}`).join("\n"))}>
+                Copy
+              </button>
             </div>
           </div>
           <div className="logs-body" ref={bodyRef}>

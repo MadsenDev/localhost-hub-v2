@@ -99,7 +99,7 @@ export function HomeView({ data, onOpenWs, onOpenProject, onResumeSession, start
 
       <div className="dash-grid">
         <div>
-          <SectionHeader title="Active workspaces" actionLabel="New workspace" onAction={() => {}} />
+          <SectionHeader title="Active workspaces" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             {data.workspaces.map((w) => <WorkspaceCard key={w.id} w={w} onOpenWs={onOpenWs} startWs={startWs} stopWs={stopWs} />)}
           </div>

@@ -43,7 +43,7 @@ fn parse_ss_output(text: &str) -> Vec<LivePort> {
             continue;
         }
 
-        let addr = if parts[0] == "LISTEN" { parts[3] } else { parts[3] };
+        let addr = parts[3];
         let port = addr.rsplit(':').next().and_then(|p| p.parse::<u16>().ok());
         let Some(port) = port else { continue };
 

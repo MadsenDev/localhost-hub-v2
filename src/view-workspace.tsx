@@ -3,6 +3,7 @@ import type { Workspace, Repo, StoredService } from './types';
 import { Ic } from './icons';
 import { StatusDot } from './shared';
 import { formatUptime } from './utils';
+import { tauriApi } from './tauri-api';
 
 interface WorkspaceViewProps {
   workspace: Workspace | null;
@@ -196,17 +197,19 @@ export function WorkspaceView({
                 <div className="svc-cmd">{s.cmd}</div>
                 <div className="svc-port">
                   {s.port ? (
-                    <><Ic.Globe size={12} /><a href="#" onClick={e => e.preventDefault()}>localhost:{s.port}</a></>
+                    <><Ic.Globe size={12} /><button className="btn sm ghost" onClick={() => tauriApi.openUrl(`http://localhost:${s.port}`)}>localhost:{s.port}</button></>
                   ) : <span style={{ color: 'var(--fg-4)' }}>—</span>}
                 </div>
                 <div className="svc-uptime">{formatUptime(s.uptime)}</div>
                 <div className="svc-actions">
-                  {s.status === 'running' || s.status === 'starting' ? (
+                  {(s.status === 'running' || s.status === 'starting') && s.managed ? (
                     <>
                       <button className="btn sm ghost" title="Logs" onClick={() => onOpenLogs(s.id)}><Ic.Logs size={11} /></button>
                       <button className="btn sm ghost" title="Restart" onClick={() => onRestartSvc(w.id, s.id)}><Ic.Reload size={11} /></button>
                       <button className="btn sm ghost danger" title="Stop" onClick={() => onStopSvc(w.id, s.id)}><Ic.Stop size={11} /></button>
                     </>
+                  ) : s.status === 'running' && !s.managed ? (
+                    <span className="tag">external · observe only</span>
                   ) : s.status === 'failed' || s.status === 'crashed' || s.status === 'exited' ? (
                     <>
                       <button className="btn sm danger" title="Logs" onClick={() => onOpenLogs(s.id)}><Ic.Logs size={11} /> Inspect</button>

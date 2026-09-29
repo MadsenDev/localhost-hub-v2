@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "WEBKIT_DISABLE_COMPOSITING_MODE=1 tauri dev",
@@ -25,6 +26,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.2",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
   }
 }

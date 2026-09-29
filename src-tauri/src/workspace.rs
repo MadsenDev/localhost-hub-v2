@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::git::{get_git_status, GitStatus};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceGroup {
     pub id: String,
@@ -20,12 +22,26 @@ pub struct DetectedProject {
     pub has_git: bool,
     pub has_env: bool,
     pub env_files: Vec<String>,
+    pub language: String,
+    pub has_readme: bool,
+    pub has_license: bool,
+    pub has_docker: bool,
+    pub has_devcontainer: bool,
+    pub dependencies: Vec<PackageEntry>,
+    pub dev_dependencies: Vec<PackageEntry>,
+    pub git: Option<GitStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptEntry {
     pub name: String,
     pub cmd: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageEntry {
+    pub name: String,
+    pub version: String,
 }
 
 /// Scan roots for git repositories. Each .git dir = one workspace.
@@ -93,7 +109,7 @@ fn find_git_repos(path: &Path, depth: usize, max_depth: usize, acc: &mut Vec<Det
 
 fn detect_repo(path: &Path) -> Option<DetectedProject> {
     let name = path.file_name()?.to_str()?.to_string();
-    let (framework, package_manager, scripts) = detect_stack(path);
+    let stack = detect_stack(path);
 
     let env_files: Vec<String> = [".env", ".env.local", ".env.development", ".env.production"]
         .iter()
@@ -104,16 +120,33 @@ fn detect_repo(path: &Path) -> Option<DetectedProject> {
     Some(DetectedProject {
         path: path.to_string_lossy().to_string(),
         name,
-        framework,
-        package_manager,
-        scripts,
+        framework: stack.framework,
+        package_manager: stack.package_manager,
+        scripts: stack.scripts,
         has_git: true,
         has_env: !env_files.is_empty(),
         env_files,
+        language: stack.language,
+        has_readme: has_named_file(path, &["README", "README.md", "README.txt", "README.rst"]),
+        has_license: has_named_file(path, &["LICENSE", "LICENSE.md", "COPYING"]),
+        has_docker: has_named_file(path, &["Dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]),
+        has_devcontainer: path.join(".devcontainer").exists(),
+        dependencies: stack.dependencies,
+        dev_dependencies: stack.dev_dependencies,
+        git: get_git_status(&path.to_string_lossy()),
     })
 }
 
-fn detect_stack(path: &Path) -> (String, String, Vec<ScriptEntry>) {
+struct StackInfo {
+    framework: String,
+    package_manager: String,
+    language: String,
+    scripts: Vec<ScriptEntry>,
+    dependencies: Vec<PackageEntry>,
+    dev_dependencies: Vec<PackageEntry>,
+}
+
+fn detect_stack(path: &Path) -> StackInfo {
     // JavaScript / TypeScript (package.json at root)
     if let Ok(content) = fs::read_to_string(path.join("package.json")) {
         if let Ok(pkg) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -126,7 +159,19 @@ fn detect_stack(path: &Path) -> (String, String, Vec<ScriptEntry>) {
                     cmd: v.as_str().unwrap_or("").to_string(),
                 }).collect())
                 .unwrap_or_default();
-            return (framework, pm, scripts);
+            let language = if path.join("tsconfig.json").exists() {
+                "TypeScript"
+            } else {
+                "JavaScript"
+            };
+            return StackInfo {
+                framework,
+                package_manager: pm,
+                language: language.to_string(),
+                scripts,
+                dependencies: package_entries(&pkg["dependencies"]),
+                dev_dependencies: package_entries(&pkg["devDependencies"]),
+            };
         }
     }
 
@@ -141,17 +186,17 @@ fn detect_stack(path: &Path) -> (String, String, Vec<ScriptEntry>) {
             }
             _ => "Rust".to_string(),
         };
-        return (label, "cargo".to_string(), vec![
-            ScriptEntry { name: "build".into(), cmd: "cargo build".into() },
-            ScriptEntry { name: "run".into(),   cmd: "cargo run".into() },
-            ScriptEntry { name: "test".into(),  cmd: "cargo test".into() },
-            ScriptEntry { name: "check".into(), cmd: "cargo check".into() },
-        ]);
+        return stack(label, "cargo", "Rust", vec![
+                ScriptEntry { name: "build".into(), cmd: "cargo build".into() },
+                ScriptEntry { name: "run".into(),   cmd: "cargo run".into() },
+                ScriptEntry { name: "test".into(),  cmd: "cargo test".into() },
+                ScriptEntry { name: "check".into(), cmd: "cargo check".into() },
+            ]);
     }
 
     // Go
     if path.join("go.mod").exists() {
-        return ("Go".to_string(), "go".to_string(), vec![
+        return stack("Go", "go", "Go", vec![
             ScriptEntry { name: "run".into(),   cmd: "go run .".into() },
             ScriptEntry { name: "build".into(), cmd: "go build".into() },
             ScriptEntry { name: "test".into(),  cmd: "go test ./...".into() },
@@ -161,20 +206,20 @@ fn detect_stack(path: &Path) -> (String, String, Vec<ScriptEntry>) {
     // Python
     if path.join("pyproject.toml").exists() {
         let pm = if which("uv") { "uv" } else { "pip" };
-        return ("Python".to_string(), pm.to_string(), vec![
+        return stack("Python", pm, "Python", vec![
             ScriptEntry { name: "run".into(), cmd: "python -m main".into() },
             ScriptEntry { name: "test".into(), cmd: format!("{} run pytest", pm) },
         ]);
     }
     if path.join("requirements.txt").exists() {
-        return ("Python".to_string(), "pip".to_string(), vec![
+        return stack("Python", "pip", "Python", vec![
             ScriptEntry { name: "run".into(), cmd: "python main.py".into() },
         ]);
     }
 
     // Ruby
     if path.join("Gemfile").exists() {
-        return ("Ruby".to_string(), "bundler".to_string(), vec![
+        return stack("Ruby", "bundler", "Ruby", vec![
             ScriptEntry { name: "run".into(),   cmd: "bundle exec ruby".into() },
             ScriptEntry { name: "test".into(),  cmd: "bundle exec rspec".into() },
         ]);
@@ -182,13 +227,50 @@ fn detect_stack(path: &Path) -> (String, String, Vec<ScriptEntry>) {
 
     // PHP
     if path.join("composer.json").exists() {
-        return ("PHP".to_string(), "composer".to_string(), vec![
+        return stack("PHP", "composer", "PHP", vec![
             ScriptEntry { name: "install".into(), cmd: "composer install".into() },
         ]);
     }
 
     // Generic — we still detected the git repo, just no known build system
-    ("Project".to_string(), String::new(), vec![])
+    stack("Project", "", "Unknown", vec![])
+}
+
+fn stack(
+    framework: impl Into<String>,
+    package_manager: impl Into<String>,
+    language: impl Into<String>,
+    scripts: Vec<ScriptEntry>,
+) -> StackInfo {
+    StackInfo {
+        framework: framework.into(),
+        package_manager: package_manager.into(),
+        language: language.into(),
+        scripts,
+        dependencies: vec![],
+        dev_dependencies: vec![],
+    }
+}
+
+fn package_entries(value: &serde_json::Value) -> Vec<PackageEntry> {
+    let mut entries = value
+        .as_object()
+        .map(|items| {
+            items
+                .iter()
+                .map(|(name, version)| PackageEntry {
+                    name: name.clone(),
+                    version: version.as_str().unwrap_or("").to_string(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    entries
+}
+
+fn has_named_file(path: &Path, names: &[&str]) -> bool {
+    names.iter().any(|name| path.join(name).exists())
 }
 
 fn detect_js_framework(pkg: &serde_json::Value) -> String {

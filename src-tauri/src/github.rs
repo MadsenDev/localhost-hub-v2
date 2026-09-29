@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-// Set your GitHub OAuth App client_id here.
-// Create one at https://github.com/settings/developers — enable "Device Authorization Flow".
-// The client_id is public — device flow requires no client secret.
-pub const CLIENT_ID: &str = env!("GITHUB_CLIENT_ID");
+fn client_id() -> Result<String, String> {
+    std::env::var("GITHUB_CLIENT_ID").map_err(|_| {
+        "GitHub is not configured. Set GITHUB_CLIENT_ID before launching Localhost Hub.".to_string()
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeviceCodeResponse {
@@ -43,12 +44,13 @@ struct DeviceTokenResponse {
 }
 
 pub async fn request_device_code() -> Result<DeviceCodeResponse, String> {
+    let client_id = client_id()?;
     let client = reqwest::Client::new();
     let resp = client
         .post("https://github.com/login/device/code")
         .header("Accept", "application/json")
         .header("User-Agent", "localhost-hub")
-        .form(&[("client_id", CLIENT_ID), ("scope", "repo user read:org")])
+        .form(&[("client_id", client_id.as_str()), ("scope", "repo user read:org")])
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -60,13 +62,14 @@ pub async fn request_device_code() -> Result<DeviceCodeResponse, String> {
 
 /// Returns (access_token, GitHubUser). The token stays in Rust — callers save it to config.
 pub async fn poll_token(device_code: &str) -> Result<(String, GitHubUser), String> {
+    let client_id = client_id()?;
     let client = reqwest::Client::new();
     let resp = client
         .post("https://github.com/login/oauth/access_token")
         .header("Accept", "application/json")
         .header("User-Agent", "localhost-hub")
         .form(&[
-            ("client_id", CLIENT_ID),
+            ("client_id", client_id.as_str()),
             ("device_code", device_code),
             ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
         ])

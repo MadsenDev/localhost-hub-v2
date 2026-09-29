@@ -16,10 +16,9 @@ export function Sidebar({ view, setView, ws, setWs, workspaces, runningByWs, onC
     { id: 'home',       label: 'Home',       icon: <Ic.Home /> },
     { id: 'repos',      label: 'Repos',      icon: <Ic.Folder /> },
     { id: 'github-repos', label: 'GitHub',    icon: <Ic.Branch /> },
-    { id: 'ports',      label: 'Ports',      icon: <Ic.Ports />,     badge: <span className="badge live">live</span> },
+    { id: 'ports',      label: 'Ports',      icon: <Ic.Ports /> },
     { id: 'logs',       label: 'Logs',       icon: <Ic.Logs /> },
     { id: 'sessions',   label: 'Sessions',   icon: <Ic.History /> },
-    { id: 'containers', label: 'Containers', icon: <Ic.Container />, badge: <span className="badge">3</span> },
   ];
   const utility = [{ id: 'settings', label: 'Settings', icon: <Ic.Settings /> }];
 
@@ -30,7 +29,6 @@ export function Sidebar({ view, setView, ws, setWs, workspaces, runningByWs, onC
         <div key={n.id} className={'sb-item' + (view === n.id ? ' active' : '')} onClick={() => setView(n.id)}>
           <span className="icon">{n.icon}</span>
           <span className="label">{n.label}</span>
-          {n.badge ?? null}
         </div>
       ))}
 

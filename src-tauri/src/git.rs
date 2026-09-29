@@ -56,7 +56,7 @@ pub fn get_git_status(path: &str) -> Option<GitStatus> {
         .map(|(m, h)| (Some(m), Some(h)))
         .unwrap_or((None, None));
 
-    let clean = changed == 0 && staged == 0;
+    let clean = changed == 0 && staged == 0 && untracked == 0;
 
     Some(GitStatus {
         branch,

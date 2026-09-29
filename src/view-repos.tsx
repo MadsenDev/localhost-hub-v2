@@ -8,9 +8,10 @@ interface ReposViewProps {
   workspaces: StoredWorkspace[];
   onAddToWorkspace: (wsId: string, svc: StoredService) => void;
   onCreateWorkspace: () => void;
+  onOpenProject: (id: string) => void;
 }
 
-export function ReposView({ repos, workspaces, onAddToWorkspace, onCreateWorkspace }: ReposViewProps) {
+export function ReposView({ repos, workspaces, onAddToWorkspace, onCreateWorkspace, onOpenProject }: ReposViewProps) {
   const [search, setSearch] = React.useState('');
   const [picker, setPicker] = React.useState<{ repoId: string; script: string; cmd: string } | null>(null);
   const [pickerWs, setPickerWs] = React.useState('');
@@ -77,6 +78,7 @@ export function ReposView({ repos, workspaces, onAddToWorkspace, onCreateWorkspa
             <RepoCard
               key={repo.id}
               repo={repo}
+              onOpen={() => onOpenProject(repo.id)}
               onAddScript={(script, cmd) => openPicker(repo.id, script, cmd, repo.name)}
             />
           ))}
@@ -140,7 +142,7 @@ export function ReposView({ repos, workspaces, onAddToWorkspace, onCreateWorkspa
   );
 }
 
-function RepoCard({ repo, onAddScript }: { repo: Repo; onAddScript: (script: string, cmd: string) => void }) {
+function RepoCard({ repo, onOpen, onAddScript }: { repo: Repo; onOpen: () => void; onAddScript: (script: string, cmd: string) => void }) {
   const [expanded, setExpanded] = React.useState(false);
   const devScripts = repo.scripts.filter(s => ['dev', 'start', 'run', 'serve', 'watch'].includes(s.name));
   const otherScripts = repo.scripts.filter(s => !['dev', 'start', 'run', 'serve', 'watch'].includes(s.name));
@@ -148,7 +150,7 @@ function RepoCard({ repo, onAddScript }: { repo: Repo; onAddScript: (script: str
 
   return (
     <div className="panel" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 10, borderBottom: repo.scripts.length > 0 ? '1px solid var(--line-0)' : 'none' }}>
+      <div onClick={onOpen} style={{ padding: '12px 14px', display: 'flex', alignItems: 'flex-start', gap: 10, borderBottom: repo.scripts.length > 0 ? '1px solid var(--line-0)' : 'none', cursor: 'pointer' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--fg-1)' }}>{repo.name}</span>

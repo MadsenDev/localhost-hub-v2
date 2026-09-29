@@ -1,6 +1,6 @@
 import React from 'react';
 import type { HubDataShape, Service, Session, LogLine, Workspace, Port, ServiceStatus, Repo, StoredWorkspace, StoredService } from './types';
-import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakColor, TweakButton } from './tweaks-panel';
+import { useTweaks } from './tweaks-panel';
 import { TitleBar } from './chrome';
 import { Sidebar } from './sidebar';
 import { HomeView } from './view-home';
@@ -15,9 +15,7 @@ import { CommandPalette } from './view-palette';
 import { OnboardingView } from './view-onboarding';
 import { SettingsView } from './view-settings';
 import { githubAuth, type GitHubUser } from './github-auth';
-import { listenToServiceEvents, tauriApi, type WorkspaceGroup, type ProcessInfo, type LivePort, type ManagedServiceInfo } from './tauri-api';
-import { Ic } from './icons';
-import { formatDuration } from './utils';
+import { listenToServiceEvents, tauriApi, type WorkspaceGroup, type ProcessInfo, type LivePort, type ManagedServiceInfo, type HistorySession } from './tauri-api';
 
 const TWEAK_DEFAULTS = {
   theme: "charcoal",
@@ -56,7 +54,7 @@ function guessPortGroup(port: number): string {
 }
 
 /** Derive Repo[] from scan results + live data */
-function buildRepos(groups: WorkspaceGroup[], processes: ProcessInfo[], ports: LivePort[]): Repo[] {
+export function buildRepos(groups: WorkspaceGroup[], processes: ProcessInfo[], ports: LivePort[]): Repo[] {
   const pidToPort: Record<number, number> = {};
   for (const p of ports) {
     if (p.pid && !(p.pid in pidToPort)) pidToPort[p.pid] = p.port;
@@ -72,6 +70,22 @@ function buildRepos(groups: WorkspaceGroup[], processes: ProcessInfo[], ports: L
       package_manager: proj.package_manager,
       scripts: proj.scripts,
       has_env: proj.has_env,
+      env_files: proj.env_files,
+      language: proj.language,
+      has_readme: proj.has_readme,
+      has_license: proj.has_license,
+      has_docker: proj.has_docker,
+      has_devcontainer: proj.has_devcontainer,
+      dependencies: proj.dependencies,
+      dev_dependencies: proj.dev_dependencies,
+      git: proj.git ? {
+        branch: proj.git.branch,
+        clean: proj.git.clean,
+        ahead: proj.git.ahead,
+        behind: proj.git.behind,
+        changed: proj.git.changed,
+        last: [proj.git.last_commit_hash, proj.git.last_commit_message].filter(Boolean).join(' · '),
+      } : null,
       is_running: !!proc,
       running_port: port,
       cpu: proc?.cpu_usage ?? 0,
@@ -85,6 +99,8 @@ function buildHubData(
   stored: StoredWorkspace[],
   processes: ProcessInfo[],
   ports: LivePort[],
+  repos: Repo[],
+  sessions: Session[],
   managedRuntimes: Record<string, ManagedRuntime> = {},
 ): HubDataShape {
   const pidToPort: Record<number, number> = {};
@@ -100,7 +116,7 @@ function buildHubData(
       const startedAt = managedRuntime?.startedAt ?? null;
       return {
         id: ss.id,
-        project: ss.id,
+        project: `repo::${ss.repo_path}`,
         name: ss.name,
         cmd: ss.cmd,
         repo_path: ss.repo_path,
@@ -112,6 +128,7 @@ function buildHubData(
         cpu: proc?.cpu_usage ?? 0,
         mem: proc ? Math.round(proc.memory_kb / 1024) : 0,
         framework: '',
+        managed: !!managedRuntime,
       };
     });
     return {
@@ -132,10 +149,37 @@ function buildHubData(
     const matchWs = proc?.cwd
       ? stored.find(sw => sw.services.some(ss => proc.cwd!.startsWith(ss.repo_path)))
       : null;
-    return { id: `p-${p.port}`, port: p.port, svc: p.process_name ?? 'unknown', host: 'localhost', status: 'running' as ServiceStatus, ws: matchWs?.id ?? 'system', group: guessPortGroup(p.port) };
+    const matchService = proc?.cwd && matchWs
+      ? matchWs.services.find((service) => proc.cwd!.startsWith(service.repo_path))
+      : null;
+    return { id: `p-${p.port}`, port: p.port, svc: matchService?.id ?? p.process_name ?? 'unknown', host: 'localhost', status: 'running' as ServiceStatus, ws: matchWs?.id ?? 'system', group: guessPortGroup(p.port) };
   });
 
-  return { workspaces, projects: {}, activity: [], sessions: [], logSeeds: {}, ports: portsList, portEdges: [] };
+  return {
+    workspaces,
+    projects: Object.fromEntries(repos.map((repo) => [repo.id, repo])),
+    activity: [],
+    sessions,
+    logSeeds: {},
+    ports: portsList,
+    portEdges: [],
+  };
+}
+
+export function mapHistorySessions(items: HistorySession[]): Session[] {
+  return items.map((item) => ({
+    id: item.id,
+    title: item.title,
+    when: new Date(item.started_at_ms).toLocaleString(),
+    duration: Math.max(0, Math.floor(((item.ended_at_ms ?? Date.now()) - item.started_at_ms) / 1000)),
+    ws: item.workspace_id,
+    projects: 0,
+    services: item.service_count,
+    badge: item.status === 'active' ? 'ACTIVE' : undefined,
+    started_at_ms: item.started_at_ms,
+    ended_at_ms: item.ended_at_ms,
+    status: item.status,
+  }));
 }
 
 export default function App() {
@@ -222,21 +266,52 @@ export default function App() {
     }
 
     async function refreshLive() {
-      const [processes, ports, managed] = await Promise.all([
+      const [processes, ports, managed, historySessions] = await Promise.all([
         tauriApi.getProcesses().catch(() => [] as ProcessInfo[]),
         tauriApi.scanPorts().catch(() => [] as LivePort[]),
         tauriApi.listManagedServices().catch(() => [] as ManagedServiceInfo[]),
+        tauriApi.listHistorySessions().catch(() => [] as HistorySession[]),
       ]);
       if (cancelled) return;
       syncManagedServiceRuntimes(managed);
-      setRepos(buildRepos(liveGroupsRef.current, processes, ports));
-      setData(buildHubData(storedWsRef.current, processes, ports, managedRuntimesRef.current));
+      const nextRepos = buildRepos(liveGroupsRef.current, processes, ports);
+      const nextSessions = mapHistorySessions(historySessions);
+      setRepos(nextRepos);
+      setData((current) => ({
+        ...buildHubData(storedWsRef.current, processes, ports, nextRepos, nextSessions, managedRuntimesRef.current),
+        activity: current.activity,
+      }));
     }
 
     loadGroups().then(refreshLive);
     const id = setInterval(refreshLive, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [onboarding, workspaceRefreshKey]);
+
+  React.useEffect(() => {
+    if (onboarding !== false) return;
+    tauriApi.listHistoryLogs(undefined, undefined, 2000).then((items) => {
+      if (!items) return;
+      setLogs(items.map((line) => ({
+        ts: new Date(line.timestamp_ms).toLocaleTimeString("en-GB", { hour12: false }),
+        src: line.service_id,
+        msg: line.message,
+        kind: line.stream === "stderr" ? "error" : "info",
+        run_id: line.run_id,
+        timestamp_ms: line.timestamp_ms,
+        stream: line.stream,
+      })));
+      setData((current) => ({
+        ...current,
+        activity: items.slice(-20).reverse().map((line) => ({
+          ts: new Date(line.timestamp_ms).toLocaleTimeString("en-GB", { hour12: false }),
+          project: line.service_id.split("::").pop() ?? line.service_id,
+          label: line.message,
+          kind: line.stream === "stderr" ? "error" : "info",
+        })),
+      }));
+    }).catch(() => {});
+  }, [onboarding]);
 
   const allServices = React.useMemo(
     () => data.workspaces.flatMap((w) => w.services.map((s) => ({ ...s, _ws: w.id }))),
@@ -315,13 +390,22 @@ export default function App() {
       .catch(() => {});
   }
 
-  function pushLog(srcId: string, text: string, kind: string) {
-    const ts = new Date().toLocaleTimeString("en-GB", { hour12: false }).slice(0, 8) + "." + String(Math.floor(Math.random() * 999)).padStart(3, "0");
+  function pushLog(srcId: string, text: string, kind: string, runId?: string, timestampMs = Date.now(), stream?: string) {
+    const ts = new Date(timestampMs).toLocaleTimeString("en-GB", { hour12: false });
     const safeKind = (kind || "info") as LogLine["kind"];
     setLogs((l) => {
-      const next = l.concat({ ts, src: srcId, msg: text, kind: safeKind });
-      return next.length > 600 ? next.slice(-600) : next;
+      const next = l.concat({ ts, src: srcId, msg: text, kind: safeKind, run_id: runId, timestamp_ms: timestampMs, stream });
+      return next.length > 5000 ? next.slice(-5000) : next;
     });
+    setData((current) => ({
+      ...current,
+      activity: [{
+        ts,
+        project: srcId.split("::").pop() ?? srcId,
+        label: text,
+        kind: safeKind,
+      }, ...current.activity].slice(0, 20),
+    }));
   }
 
   React.useEffect(() => {
@@ -329,7 +413,7 @@ export default function App() {
     let cancelled = false;
     listenToServiceEvents((event) => {
       const kind = event.kind === "stderr" || event.kind === "error" ? "error" : event.kind === "started" ? "ok" : "info";
-      pushLog(event.service_id, event.message, kind);
+      pushLog(event.service_id, event.message, kind, event.run_id, event.timestamp_ms, event.stream);
       if (event.kind === "started") {
         const svc = storedWsRef.current.flatMap((w) => w.services.map((s) => ({ ...s, wsId: w.id }))).find((s) => s.id === event.service_id);
         if (svc) setManagedServiceStatus(svc.wsId, event.service_id, "running", event.pid ?? null);
@@ -396,22 +480,10 @@ export default function App() {
     setSources(prev => {
       const next = { ...prev };
       allServices.forEach(s => { if (!(s.id in next)) next[s.id] = true; });
+      logs.forEach(line => { if (!(line.src in next)) next[line.src] = true; });
       return next;
     });
-  }, [allServices]);
-
-  function setServiceStatus(wsId: string, svcId: string, status: Service["status"]) {
-    setData((d) => ({
-      ...d,
-      workspaces: d.workspaces.map((w) => w.id !== wsId ? w : {
-        ...w,
-        services: w.services.map((s) => s.id !== svcId ? s : {
-          ...s, status,
-          uptime: ["stopped", "failed", "exited", "crashed"].includes(status) ? 0 : s.uptime,
-        }),
-      }),
-    }));
-  }
+  }, [allServices, logs]);
 
   function setManagedServiceStatus(wsId: string, svcId: string, status: ServiceStatus, pid?: number | null) {
     const existing = managedRuntimesRef.current[svcId];
@@ -472,7 +544,7 @@ export default function App() {
     setManagedRuntimes(next);
   }
 
-  async function startService(wsId: string, svcId: string) {
+  async function startService(wsId: string, svcId: string, sessionId?: string) {
     const svc = data.workspaces.find((w) => w.id === wsId)?.services.find((s) => s.id === svcId);
     if (!svc) return;
     setManagedServiceStatus(wsId, svcId, "starting");
@@ -480,11 +552,17 @@ export default function App() {
     toast(`Starting ${svc.name}`, "info");
     try {
       if (!svc.repo_path) throw new Error("Missing repo path for service.");
-      await tauriApi.startService(svc.id, svc.repo_path, svc.cmd);
+      await tauriApi.startService(svc.id, svc.repo_path, svc.cmd, {
+        name: svc.name,
+        projectId: svc.project,
+        workspaceId: wsId,
+        sessionId,
+      });
     } catch (err) {
       setManagedServiceStatus(wsId, svcId, "failed");
       pushLog(svcId, String(err), "error");
       toast(`Failed to start ${svc.name}`, "error");
+      throw err;
     }
   }
 
@@ -492,40 +570,85 @@ export default function App() {
     const svc = data.workspaces.find((w) => w.id === wsId)?.services.find((s) => s.id === svcId);
     if (!svc) return;
     try {
-      try {
-        await tauriApi.stopManagedService(svc.id);
-      } catch (err) {
-        if (!svc.pid) throw err;
-        await tauriApi.killProcess(svc.pid);
-      }
+      if (!svc.managed) throw new Error("External processes are observe-only.");
+      await tauriApi.stopManagedService(svc.id);
       setManagedServiceStatus(wsId, svcId, "stopped");
       toast(`Stopped ${svc.name}`, "info");
     } catch (err) {
       pushLog(svcId, String(err), "error");
       toast(`Failed to stop ${svc.name}`, "error");
+      throw err;
     }
   }
 
   async function restartService(wsId: string, svcId: string) {
     setManagedServiceStatus(wsId, svcId, "restarting");
     await stopService(wsId, svcId);
-    window.setTimeout(() => startService(wsId, svcId), 400);
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    await startService(wsId, svcId);
   }
 
-  function startAll(wsId: string) {
+  async function startAll(wsId: string) {
     const w = data.workspaces.find((x) => x.id === wsId);
     if (!w) return;
-    w.services.forEach((s, i) => {
-      if (s.status !== "running") setTimeout(() => startService(wsId, s.id), i * 350);
-    });
+    const pending = w.services.filter((service) => service.status !== "running");
+    if (pending.length === 0) return;
     toast(`Booting workspace ${w.name}`, "info");
+    try {
+      const session = await tauriApi.createHistorySession(w.id, w.name, w.name);
+      const results = await Promise.allSettled(pending.map((service) => startService(wsId, service.id, session.id)));
+      const started = results.filter((result) => result.status === 'fulfilled').length;
+      await tauriApi.finalizeHistorySession(session.id, started);
+      setWorkspaceRefreshKey((key) => key + 1);
+    } catch (err) {
+      toast(`Workspace boot was incomplete: ${String(err)}`, "error");
+    }
+  }
+
+  async function runProjectScript(repo: Repo, scriptName: string, cmd: string) {
+    const serviceId = `adhoc::${repo.path}::${scriptName}`;
+    pushLog(serviceId, `> ${cmd}`, "info");
+    toast(`Starting ${repo.name}:${scriptName}`, "info");
+    try {
+      await tauriApi.startService(serviceId, repo.path, cmd, {
+        name: `${repo.name}:${scriptName}`,
+        projectId: repo.id,
+      });
+      setWorkspaceRefreshKey((key) => key + 1);
+    } catch (err) {
+      pushLog(serviceId, String(err), "error");
+      toast(`Failed to run ${scriptName}`, "error");
+    }
+  }
+
+  async function resumeSession(session: Session) {
+    try {
+      const runs = await tauriApi.listHistoryRuns(session.id);
+      const created = await tauriApi.createHistorySession(session.ws, session.title, session.title);
+      const results = await Promise.allSettled(runs.map((run) =>
+        tauriApi.startService(run.service_id, run.cwd, run.command, {
+          name: run.name,
+          projectId: run.project_id ?? undefined,
+          workspaceId: run.workspace_id ?? undefined,
+          sessionId: created.id,
+        })
+      ));
+      const failed = results.filter((result) => result.status === 'rejected').length;
+      await tauriApi.finalizeHistorySession(created.id, results.length - failed);
+      toast(failed ? `Resumed with ${failed} failed run${failed === 1 ? '' : 's'}` : `Resumed "${session.title}"`, failed ? 'error' : 'ok');
+      setWs(session.ws);
+      setView('workspace');
+      setWorkspaceRefreshKey((key) => key + 1);
+    } catch (err) {
+      toast(`Failed to resume session: ${String(err)}`, 'error');
+    }
   }
 
   function stopAll(wsId: string) {
     const w = data.workspaces.find((x) => x.id === wsId);
     if (!w) return;
     w.services.forEach((s) => {
-      if (s.status === "running" || s.status === "starting" || s.status === "restarting") stopService(wsId, s.id);
+      if (s.managed && (s.status === "running" || s.status === "starting" || s.status === "restarting")) stopService(wsId, s.id);
     });
     toast(`Stopping workspace ${w.name}`, "warn");
   }
@@ -552,6 +675,16 @@ export default function App() {
     setView("workspace");
   }
 
+  function openLogs(sourceId?: string) {
+    if (sourceId) {
+      const next: Record<string, boolean> = {};
+      Object.keys(sources).forEach((id) => { next[id] = id === sourceId; });
+      next[sourceId] = true;
+      setSources(next);
+    }
+    setView("logs");
+  }
+
   const activeView = (() => {
     if (view === "home") return (
       <HomeView
@@ -569,6 +702,7 @@ export default function App() {
         workspaces={storedWorkspaces}
         onAddToWorkspace={addServiceToWorkspace}
         onCreateWorkspace={createWorkspace}
+        onOpenProject={(id) => { setProject(id); setView("project"); }}
       />
     );
     if (view === "github-repos") return <GitHubReposView />;
@@ -580,7 +714,7 @@ export default function App() {
         onRestartSvc={restartService}
         onStartAll={startAll}
         onStopAll={stopAll}
-        onOpenLogs={() => setView("logs")}
+        onOpenLogs={openLogs}
         onDeleteWorkspace={deleteWorkspace}
         onUpdateWorkspace={updateWorkspace}
         onRemoveService={removeServiceFromWorkspace}
@@ -597,7 +731,7 @@ export default function App() {
         onRestartSvc={restartService}
         onStartAll={startAll}
         onStopAll={stopAll}
-        onOpenLogs={() => setView("logs")}
+        onOpenLogs={openLogs}
         onDeleteWorkspace={deleteWorkspace}
         onUpdateWorkspace={updateWorkspace}
         onRemoveService={removeServiceFromWorkspace}
@@ -620,16 +754,18 @@ export default function App() {
         setSearch={setLogSearch}
         autoscroll={autoscroll}
         setAutoscroll={setAutoscroll}
-        clearLogs={() => setLogs([])}
+        clearLogs={() => {
+          tauriApi.clearHistory().catch((err) => toast(String(err), "error"));
+          setLogs([]);
+        }}
       />
     );
     if (view === "sessions") return (
       <SessionsView
         workspaces={data.workspaces}
         sessions={data.sessions}
-        services={allServices}
-        onResume={(s: Session) => { setWs(s.ws); setView("workspace"); toast(`Resumed "${s.title}"`, "ok"); }}
-        onJumpToLogs={(t: number, s: Session) => { setView("logs"); toast(`Jumped to logs @ +${formatDuration(t * s.duration)}`, "info"); }}
+        onResume={resumeSession}
+        onOpenLogs={() => setView("logs")}
       />
     );
     if (view === "project") {
@@ -642,23 +778,12 @@ export default function App() {
           services={allServices}
           logs={logs}
           onBack={() => setView("workspace")}
-          onRun={() => {
-            const svc = allServices.find((s) => s.project === proj.id);
-            if (svc) startService(svc._ws, svc.id);
-          }}
-          onOpenLogs={() => setView("logs")}
+          onRunScript={(script, cmd) => runProjectScript(proj, script, cmd)}
+          onOpenEditor={() => tauriApi.openInEditor(proj.path).catch((err) => toast(String(err), "error"))}
+          onOpenLogs={() => openLogs()}
         />
       );
     }
-    if (view === "containers") return (
-      <div className="view"><div className="view-inner">
-        <div className="empty">
-          <Ic.Stack size={36} />
-          <div style={{ marginTop: 10, fontFamily: "var(--font-mono)" }}>Containers panel</div>
-          <div style={{ color: "var(--fg-4)", marginTop: 6, fontSize: 12 }}>Docker compose stacks attached to a workspace will show here.</div>
-        </div>
-      </div></div>
-    );
     if (view === "settings") return (
       <SettingsView
         githubUser={githubUser}
@@ -741,54 +866,6 @@ export default function App() {
         onOpenView={(v) => setView(v)}
         onOpenProject={(id) => { setProject(id); setView("project"); }}
       />
-
-      <TweaksPanel title="Tweaks" noDeckControls={true}>
-        <TweakSection label="Theme">
-          <TweakRadio
-            label="Surface"
-            value={t.theme}
-            options={[
-              { value: "charcoal", label: "Charcoal" },
-              { value: "midnight", label: "Midnight" },
-              { value: "espresso", label: "Espresso" },
-            ]}
-            onChange={(v) => updateAppearance("theme", v)}
-          />
-          <TweakColor
-            label="Accent"
-            value={t.accent}
-            options={["#4a78c4", "#d9854f", "#8a78ec", "#54a892"]}
-            onChange={(v) => updateAppearance("accent", v)}
-          />
-        </TweakSection>
-        <TweakSection label="Layout">
-          <TweakRadio
-            label="Density"
-            value={t.density}
-            options={[
-              { value: "breathable", label: "Air" },
-              { value: "balanced",   label: "Default" },
-              { value: "dense",      label: "Compact" },
-            ]}
-            onChange={(v) => updateAppearance("density", v)}
-          />
-          <TweakRadio
-            label="Sidebar"
-            value={t.sidebar}
-            options={[
-              { value: "collapsed", label: "Icons" },
-              { value: "labeled",   label: "Default" },
-              { value: "wide",      label: "Wide" },
-            ]}
-            onChange={(v) => updateAppearance("sidebar", v)}
-          />
-        </TweakSection>
-        <TweakSection label="Try it">
-          <TweakButton label="Boot Fattern workspace" onClick={() => { setView("workspace"); setWs("fattern"); startAll("fattern"); }} />
-          <TweakButton label="Open Command Palette (⌘K)" onClick={() => setPaletteOpen(true)} secondary />
-          <TweakButton label="Stop everything" onClick={() => data.workspaces.forEach((w) => stopAll(w.id))} secondary />
-        </TweakSection>
-      </TweaksPanel>
 
       <div className="toasts">
         {toasts.map((t) => (

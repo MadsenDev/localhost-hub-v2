@@ -421,7 +421,7 @@ function GitHubSettingsAction({
     <div className="settings-connect">
       <div>
         <strong>Connect GitHub</strong>
-        <span>Enable PR status, issue counts, CI checks, and branch sync.</span>
+        <span>Browse authenticated repositories and open them on GitHub.</span>
       </div>
       <button className="btn sm primary" onClick={onStart}>
         <GitHubMark size={13} /> Connect

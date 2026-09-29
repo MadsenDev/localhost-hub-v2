@@ -342,17 +342,55 @@ html[data-sidebar="wide"] .titlebar:not(.tb-v2) { grid-template-columns: 280px 1
 }
 .tb-icon-btn:hover { background: var(--bg-2); color: var(--fg-1); }
 
-.win-controls { display: inline-flex; gap: 4px; margin-left: 6px; padding-right: 8px; }
+.win-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
 .win-controls .wc {
-  width: 26px; height: 26px;
-  display: grid; place-items: center;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 4px;
   color: var(--fg-3);
-  cursor: default;
-  transition: background 100ms, color 100ms;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  outline: 0;
+  box-shadow: none;
+  text-shadow: none;
+  transition: background 100ms, border-color 100ms, color 100ms, transform 70ms;
 }
-.win-controls .wc:hover { background: var(--bg-2); color: var(--fg-1); }
-.win-controls .wc.close:hover { background: oklch(0.55 0.19 25); color: white; }
+.win-controls .wc:hover {
+  background: var(--bg-2);
+  border-color: var(--line-1);
+  color: var(--fg-1);
+}
+.win-controls .wc:active {
+  background: var(--bg-3);
+  transform: translateY(1px);
+}
+.win-controls .wc:focus-visible {
+  border-color: var(--blue-edge);
+  box-shadow: inset 0 0 0 1px var(--blue-soft);
+  color: var(--fg-1);
+}
+.win-controls .wc.close:hover {
+  background: oklch(0.55 0.19 25);
+  border-color: oklch(0.62 0.19 25);
+  color: white;
+}
+.win-controls .wc.close:active {
+  background: oklch(0.48 0.19 25);
+}
 
 /* ─── Sidebar ────────────────────────────────────────── */
 .sidebar {
@@ -1520,7 +1558,7 @@ html[data-sidebar="collapsed"] .sb-ws .count { display: none; }
   grid-template-columns: auto 1fr auto;
   gap: 16px;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 .proj-icon {
   width: 44px; height: 44px;
@@ -1537,30 +1575,81 @@ html[data-sidebar="collapsed"] .sb-ws .count { display: none; }
   font-family: var(--font-mono); font-size: 11.5px;
   color: var(--fg-3);
   margin-top: 4px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.proj-sub > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .proj-sub .sep { color: var(--fg-4); }
 .proj-tabs {
   display: flex;
+  gap: 2px;
   border-bottom: 1px solid var(--line-1);
-  margin-bottom: 18px;
+  margin-bottom: 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.proj-tabs::-webkit-scrollbar { display: none; }
 .proj-tab {
-  padding: 9px 14px;
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 13px;
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--fg-3);
+  background: transparent;
+  border: 0;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
+  outline: 0;
   cursor: pointer;
   display: inline-flex; gap: 7px; align-items: center;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
-.proj-tab:hover { color: var(--fg-1); }
-.proj-tab.active { color: var(--fg-1); border-bottom-color: var(--blue); }
+.proj-tab:hover {
+  color: var(--fg-1);
+  background: linear-gradient(180deg, transparent, var(--bg-2));
+}
+.proj-tab:focus-visible {
+  color: var(--fg-1);
+  box-shadow: inset 0 0 0 1px var(--blue-edge);
+}
+.proj-tab.active {
+  color: var(--fg-1);
+  border-bottom-color: var(--blue);
+  background: linear-gradient(180deg, transparent, var(--blue-soft));
+}
 .proj-tab .badge {
   font-family: var(--font-mono); font-size: 10px;
-  background: var(--bg-3); border-radius: 3px; padding: 0 5px;
+  min-width: 19px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  padding: 0 5px;
+  text-align: center;
   color: var(--fg-2);
+}
+.proj-tab.active .badge {
+  background: var(--blue-soft);
+  border-color: var(--blue-edge);
+  color: var(--fg-1);
+}
+
+.session-row {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
 }
 
 .kv-grid {

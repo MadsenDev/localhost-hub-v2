@@ -2,6 +2,7 @@ import React from 'react';
 import type { Port, PortEdge, Workspace, Service } from './types';
 import { Ic } from './icons';
 import { StatusDot, StatusBadge } from './shared';
+import { tauriApi } from './tauri-api';
 
 interface PortsViewProps {
   ports: Port[];
@@ -26,7 +27,7 @@ export function PortsView({ ports, edges, workspaces, services }: PortsViewProps
   const nodes: PortNode[] = ports.map((p) => {
     const xJitter = ((p.port % 7) - 3) * 1.6;
     const yJitter = ((p.port % 5) - 2) * 1.8;
-    const x = wsX[p.ws] + xJitter;
+    const x = (wsX[p.ws] ?? 50) + xJitter;
     const yBase = 14 + (groupOrder[p.group] ?? 1.5) * 22;
     const y = yBase + yJitter;
     return { ...p, x, y };
@@ -42,12 +43,7 @@ export function PortsView({ ports, edges, workspaces, services }: PortsViewProps
         <div>
           <div className="eyebrow" style={{ marginBottom: 4 }}>Topology</div>
           <h1 className="h1">Ports & URLs</h1>
-          <div style={{ color: "var(--fg-3)", fontSize: 12.5, marginTop: 4 }}>Live map of every localhost port — clustered by workspace, connected by observed traffic.</div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn sm ghost"><Ic.Filter size={11} /> Workspace</button>
-          <button className="btn sm ghost"><Ic.Search size={11} /> Find port</button>
-          <button className="btn sm primary"><Ic.Plus size={11} /> Watch port</button>
+          <div style={{ color: "var(--fg-3)", fontSize: 12.5, marginTop: 4 }}>Live listeners detected on this machine and associated with known workspaces where possible.</div>
         </div>
       </div>
 
@@ -135,7 +131,7 @@ export function PortsView({ ports, edges, workspaces, services }: PortsViewProps
                     <div className="pn-flyout-meta">
                       <div className="row"><span className="k">Workspace</span><span className="v">{w?.name ?? '—'}</span></div>
                       <div className="row"><span className="k">Project</span><span className="v mono">{svc ? svc.project : "—"}</span></div>
-                      <div className="row"><span className="k">URL</span><a className="v mono" href="#" onClick={(ev) => ev.preventDefault()} style={{ color: "var(--blue)" }}>http://localhost:{n.port}</a></div>
+                      <div className="row"><span className="k">URL</span><button className="btn sm ghost v mono" onClick={() => tauriApi.openUrl(`http://localhost:${n.port}`)} style={{ color: "var(--blue)" }}>http://localhost:{n.port}</button></div>
                       <div className="row"><span className="k">Status</span><span className="v"><StatusBadge s={n.status} /></span></div>
                     </div>
                     {peers.length > 0 ? (
@@ -146,9 +142,7 @@ export function PortsView({ ports, edges, workspaces, services }: PortsViewProps
                             <StatusDot s={p.active ? "running" : "stopped"} />
                             <span className="mono" style={{ color: "var(--fg-1)" }}>{p.svc ? p.svc.name : "—"}</span>
                             <span className="mono" style={{ color: "var(--fg-4)" }}>:{p.node.port}</span>
-                            {p.active
-                              ? <span className="mono" style={{ color: "var(--ok)", marginLeft: "auto", fontSize: 10.5 }}>{Math.floor(40 + Math.random() * 80)} req/s</span>
-                              : <span className="mono" style={{ color: "var(--fg-4)", marginLeft: "auto", fontSize: 10.5 }}>idle</span>}
+                            <span className="mono" style={{ color: p.active ? "var(--ok)" : "var(--fg-4)", marginLeft: "auto", fontSize: 10.5 }}>{p.active ? "listening" : "idle"}</span>
                           </div>
                         ))}
                       </div>
@@ -190,7 +184,7 @@ export function PortsView({ ports, edges, workspaces, services }: PortsViewProps
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: w?.swatch ?? 'var(--line-1)' }} />
                 <span>{w?.name ?? '—'}</span>
               </span>
-              <a href="#" onClick={(e) => e.preventDefault()} className="mono" style={{ color: "var(--blue)", textDecoration: "none" }}>http://localhost:{n.port}</a>
+              <button className="btn sm ghost mono" onClick={() => tauriApi.openUrl(`http://localhost:${n.port}`)} style={{ color: "var(--blue)" }}>http://localhost:{n.port}</button>
               <span style={{ textAlign: "right" }}><StatusBadge s={n.status} /></span>
             </div>
           );

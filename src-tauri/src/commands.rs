@@ -7,6 +7,7 @@ use crate::workspace::{scan_for_projects, scan_as_workspace_groups, DetectedProj
 use crate::config::{AppConfig, load as load_cfg, save as save_cfg};
 use crate::github::{fetch_repos, request_device_code, poll_token, DeviceCodeResponse, GitHubRepo, GitHubUser};
 use crate::services::{ManagedServiceInfo, ServiceManager};
+use crate::history::{HistoryLog, HistoryRun, HistorySession, HistoryStore};
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -85,14 +86,30 @@ pub fn kill_process(pid: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn start_service(
     app: AppHandle,
     services: State<ServiceManager>,
     service_id: String,
     cwd: String,
     cmd: String,
+    name: Option<String>,
+    project_id: Option<String>,
+    workspace_id: Option<String>,
+    session_id: Option<String>,
+    history: State<HistoryStore>,
 ) -> Result<u32, String> {
-    services.start(app, service_id, cwd, cmd)
+    services.start(
+        app,
+        service_id,
+        cwd,
+        cmd,
+        name,
+        project_id,
+        workspace_id,
+        session_id,
+        history.inner().clone(),
+    )
 }
 
 #[tauri::command]
@@ -100,8 +117,9 @@ pub fn stop_service(
     app: AppHandle,
     services: State<ServiceManager>,
     service_id: String,
+    history: State<HistoryStore>,
 ) -> Result<(), String> {
-    services.stop(app, service_id)
+    services.stop(app, service_id, history.inner().clone())
 }
 
 #[tauri::command]
@@ -109,6 +127,63 @@ pub fn list_managed_services(
     services: State<ServiceManager>,
 ) -> Result<Vec<ManagedServiceInfo>, String> {
     services.list()
+}
+
+// ── Durable history ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn create_history_session(
+    history: State<HistoryStore>,
+    workspace_id: String,
+    workspace_name: String,
+    title: Option<String>,
+) -> Result<HistorySession, String> {
+    history.create_session(&workspace_id, &workspace_name, title.as_deref())
+}
+
+#[tauri::command]
+pub fn list_history_sessions(
+    history: State<HistoryStore>,
+    limit: Option<usize>,
+) -> Result<Vec<HistorySession>, String> {
+    history.list_sessions(limit.unwrap_or(100).min(500))
+}
+
+#[tauri::command]
+pub fn finalize_history_session(
+    history: State<HistoryStore>,
+    session_id: String,
+    expected_runs: usize,
+) -> Result<(), String> {
+    history.finalize_session_setup(&session_id, expected_runs)
+}
+
+#[tauri::command]
+pub fn list_history_runs(
+    history: State<HistoryStore>,
+    session_id: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<HistoryRun>, String> {
+    history.list_runs(session_id.as_deref(), limit.unwrap_or(500).min(2000))
+}
+
+#[tauri::command]
+pub fn list_history_logs(
+    history: State<HistoryStore>,
+    run_id: Option<String>,
+    query: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<HistoryLog>, String> {
+    history.list_logs(
+        run_id.as_deref(),
+        query.as_deref(),
+        limit.unwrap_or(2000).min(10_000),
+    )
+}
+
+#[tauri::command]
+pub fn clear_history(history: State<HistoryStore>) -> Result<(), String> {
+    history.clear_completed()
 }
 
 // ── System stats ──────────────────────────────────────────────────────────────

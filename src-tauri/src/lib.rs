@@ -6,6 +6,7 @@ mod workspace;
 mod config;
 mod github;
 mod services;
+mod history;
 
 use tauri::Manager;
 
@@ -18,9 +19,15 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let win = app.get_webview_window("main").unwrap();
+            let history_path = app.path().app_data_dir()?.join("history.sqlite3");
+            let history = history::HistoryStore::open(&history_path)
+                .map_err(std::io::Error::other)?;
+            app.manage(history);
             #[cfg(debug_assertions)]
-            win.open_devtools();
+            {
+                let win = app.get_webview_window("main").unwrap();
+                win.open_devtools();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,6 +50,12 @@ pub fn run() {
             commands::github_request_device_code,
             commands::github_poll_token,
             commands::github_list_repos,
+            commands::create_history_session,
+            commands::list_history_sessions,
+            commands::finalize_history_session,
+            commands::list_history_runs,
+            commands::list_history_logs,
+            commands::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

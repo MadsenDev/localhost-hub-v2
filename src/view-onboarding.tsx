@@ -182,10 +182,10 @@ export function OnboardingView({ onComplete }: OnboardingProps) {
                 : <span className="tag" style={{ fontSize: 10, color: 'var(--fg-4)', background: 'var(--bg-2)', border: '1px solid var(--line-1)' }}>optional</span>}
             </div>
             <div className="ob-card-body">
-              <CheckItem done={auth.phase === 'connected'} label="PR status" sub="Open pull requests per repo" />
-              <CheckItem done={auth.phase === 'connected'} label="CI checks" sub="GitHub Actions pass / fail inline" />
-              <CheckItem done={auth.phase === 'connected'} label="Issue counts" sub="Open issues linked to local repos" />
-              <CheckItem done={auth.phase === 'connected'} label="Branch sync" sub="Ahead / behind your GitHub remote" />
+              <CheckItem done={auth.phase === 'connected'} label="Device authentication" sub="Optional OAuth connection" />
+              <CheckItem done={auth.phase === 'connected'} label="Repository browser" sub="List repositories you can access" />
+              <CheckItem done={auth.phase === 'connected'} label="Repository links" sub="Open repositories on GitHub" />
+              <CheckItem done label="Local Git remains independent" sub="GitHub is never required" />
             </div>
 
             <div className="ob-card-action">

@@ -3,10 +3,15 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 use tauri::{AppHandle, Emitter};
+
+use crate::history::{now_ms, HistoryStore};
 
 #[derive(Default)]
 pub struct ServiceManager {
@@ -19,7 +24,8 @@ struct ManagedProcess {
     cwd: String,
     cmd: String,
     pid: u32,
-    started_at_ms: u128,
+    started_at_ms: i64,
+    run_id: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -28,7 +34,8 @@ pub struct ManagedServiceInfo {
     pub cwd: String,
     pub cmd: String,
     pub pid: u32,
-    pub started_at_ms: u128,
+    pub started_at_ms: i64,
+    pub run_id: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -45,19 +52,29 @@ pub enum ServiceEventKind {
 #[derive(Clone, Serialize)]
 pub struct ServiceEvent {
     pub service_id: String,
+    pub run_id: String,
     pub kind: ServiceEventKind,
     pub message: String,
     pub pid: Option<u32>,
     pub code: Option<i32>,
+    pub timestamp_ms: i64,
+    pub sequence: i64,
+    pub stream: String,
 }
 
 impl ServiceManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
         app: AppHandle,
         service_id: String,
         cwd: String,
         cmd: String,
+        name: Option<String>,
+        project_id: Option<String>,
+        workspace_id: Option<String>,
+        session_id: Option<String>,
+        history: HistoryStore,
     ) -> Result<u32, String> {
         {
             let mut children = self.children.lock().map_err(|e| e.to_string())?;
@@ -94,27 +111,68 @@ impl ServiceManager {
         let pid = child.id();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        let started_at_ms = now_ms();
+        let run_id = format!("run-{started_at_ms}-{pid}");
+        let sequence = Arc::new(AtomicI64::new(0));
+
+        if let Err(err) = history.start_run(
+            &run_id,
+            session_id.as_deref(),
+            &service_id,
+            project_id.as_deref(),
+            workspace_id.as_deref(),
+            name.as_deref().unwrap_or(&service_id),
+            &cwd,
+            &cmd,
+            pid,
+            started_at_ms,
+        ) {
+            let _ = terminate_child(&mut child);
+            let _ = child.wait();
+            return Err(format!("failed to initialize run history: {err}"));
+        }
 
         emit(
             &app,
             ServiceEvent {
                 service_id: service_id.clone(),
+                run_id: run_id.clone(),
                 kind: ServiceEventKind::Started,
                 message: format!("started `{cmd}`"),
                 pid: Some(pid),
                 code: None,
+                timestamp_ms: started_at_ms,
+                sequence: 0,
+                stream: "lifecycle".to_string(),
             },
         );
 
         if let Some(stdout) = stdout {
-            spawn_reader(app.clone(), service_id.clone(), stdout, ServiceEventKind::Stdout);
+            spawn_reader(
+                app.clone(),
+                history.clone(),
+                service_id.clone(),
+                run_id.clone(),
+                stdout,
+                ServiceEventKind::Stdout,
+                "stdout",
+                sequence.clone(),
+            );
         }
         if let Some(stderr) = stderr {
-            spawn_reader(app.clone(), service_id.clone(), stderr, ServiceEventKind::Stderr);
+            spawn_reader(
+                app.clone(),
+                history.clone(),
+                service_id.clone(),
+                run_id.clone(),
+                stderr,
+                ServiceEventKind::Stderr,
+                "stderr",
+                sequence.clone(),
+            );
         }
 
         let child = Arc::new(Mutex::new(child));
-        let started_at_ms = now_ms();
         self.children
             .lock()
             .map_err(|e| e.to_string())?
@@ -124,9 +182,19 @@ impl ServiceManager {
                 cmd,
                 pid,
                 started_at_ms,
+                run_id: run_id.clone(),
             });
 
-        spawn_exit_watcher(app, self.children.clone(), service_id, child, pid);
+        spawn_exit_watcher(
+            app,
+            history,
+            self.children.clone(),
+            service_id,
+            run_id,
+            child,
+            pid,
+            sequence,
+        );
 
         Ok(pid)
     }
@@ -141,11 +209,17 @@ impl ServiceManager {
                 cmd: managed.cmd.clone(),
                 pid: managed.pid,
                 started_at_ms: managed.started_at_ms,
+                run_id: managed.run_id.clone(),
             })
             .collect())
     }
 
-    pub fn stop(&self, app: AppHandle, service_id: String) -> Result<(), String> {
+    pub fn stop(
+        &self,
+        app: AppHandle,
+        service_id: String,
+        history: HistoryStore,
+    ) -> Result<(), String> {
         let managed = self
             .children
             .lock()
@@ -157,14 +231,19 @@ impl ServiceManager {
         let pid = child.id();
         terminate_child(&mut child)?;
         let _ = child.wait();
+        history.finish_run(&managed.run_id, "stopped", None)?;
         emit(
             &app,
             ServiceEvent {
                 service_id,
+                run_id: managed.run_id,
                 kind: ServiceEventKind::Stopped,
                 message: "stopped".to_string(),
                 pid: Some(pid),
                 code: None,
+                timestamp_ms: now_ms(),
+                sequence: 0,
+                stream: "lifecycle".to_string(),
             },
         );
         Ok(())
@@ -175,15 +254,40 @@ fn terminate_child(child: &mut Child) -> Result<(), String> {
     #[cfg(unix)]
     {
         let pgid = format!("-{}", child.id());
-        if Command::new("kill").args(["-TERM", &pgid]).status().is_ok() {
-            return Ok(());
+        Command::new("kill")
+            .args(["-TERM", &pgid])
+            .status()
+            .map_err(|e| e.to_string())?;
+        for _ in 0..30 {
+            if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
+        Command::new("kill")
+            .args(["-KILL", &pgid])
+            .status()
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
-    child.kill().map_err(|e| e.to_string())
+    #[cfg(not(unix))]
+    {
+        child.kill().map_err(|e| e.to_string())
+    }
 }
 
-fn spawn_reader<R>(app: AppHandle, service_id: String, reader: R, kind: ServiceEventKind)
+#[allow(clippy::too_many_arguments)]
+fn spawn_reader<R>(
+    app: AppHandle,
+    history: HistoryStore,
+    service_id: String,
+    run_id: String,
+    reader: R,
+    kind: ServiceEventKind,
+    stream: &'static str,
+    sequence: Arc<AtomicI64>,
+)
 where
     R: std::io::Read + Send + 'static,
 {
@@ -191,25 +295,44 @@ where
         let reader = BufReader::new(reader);
         for line in reader.lines() {
             match line {
-                Ok(message) => emit(
-                    &app,
-                    ServiceEvent {
+                Ok(message) => {
+                    let timestamp_ms = now_ms();
+                    let sequence = sequence.fetch_add(1, Ordering::Relaxed) + 1;
+                    let _ = history.append_log(
+                        &run_id,
+                        &service_id,
+                        timestamp_ms,
+                        sequence,
+                        stream,
+                        &message,
+                    );
+                    emit(&app, ServiceEvent {
                         service_id: service_id.clone(),
+                        run_id: run_id.clone(),
                         kind: kind.clone(),
                         message,
                         pid: None,
                         code: None,
-                    },
-                ),
+                        timestamp_ms,
+                        sequence,
+                        stream: stream.to_string(),
+                    });
+                }
                 Err(err) => {
+                    let timestamp_ms = now_ms();
+                    let sequence = sequence.fetch_add(1, Ordering::Relaxed) + 1;
                     emit(
                         &app,
                         ServiceEvent {
                             service_id: service_id.clone(),
+                            run_id: run_id.clone(),
                             kind: ServiceEventKind::Error,
                             message: err.to_string(),
                             pid: None,
                             code: None,
+                            timestamp_ms,
+                            sequence,
+                            stream: "lifecycle".to_string(),
                         },
                     );
                     break;
@@ -219,12 +342,16 @@ where
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_exit_watcher(
     app: AppHandle,
+    history: HistoryStore,
     children: Arc<Mutex<HashMap<String, ManagedProcess>>>,
     service_id: String,
+    run_id: String,
     child: Arc<Mutex<Child>>,
     pid: u32,
+    sequence: Arc<AtomicI64>,
 ) {
     std::thread::spawn(move || {
         loop {
@@ -236,10 +363,14 @@ fn spawn_exit_watcher(
                             &app,
                             ServiceEvent {
                                 service_id: service_id.clone(),
+                                run_id: run_id.clone(),
                                 kind: ServiceEventKind::Error,
                                 message: err.to_string(),
                                 pid: Some(pid),
                                 code: None,
+                                timestamp_ms: now_ms(),
+                                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+                                stream: "lifecycle".to_string(),
                             },
                         );
                         break;
@@ -262,14 +393,20 @@ fn spawn_exit_watcher(
                     if !should_emit {
                         break;
                     }
+                    let status = if code.unwrap_or(1) == 0 { "completed" } else { "crashed" };
+                    let _ = history.finish_run(&run_id, status, code);
                     emit(
                         &app,
                         ServiceEvent {
                             service_id,
+                            run_id,
                             kind: ServiceEventKind::Exited,
                             message: format!("exited with code {}", code.map_or_else(|| "signal".to_string(), |c| c.to_string())),
                             pid: Some(pid),
                             code,
+                            timestamp_ms: now_ms(),
+                            sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+                            stream: "lifecycle".to_string(),
                         },
                     );
                     break;
@@ -283,14 +420,19 @@ fn spawn_exit_watcher(
                     if !should_emit {
                         break;
                     }
+                    let _ = history.finish_run(&run_id, "failed", None);
                     emit(
                         &app,
                         ServiceEvent {
                             service_id,
+                            run_id,
                             kind: ServiceEventKind::Error,
                             message,
                             pid: Some(pid),
                             code: None,
+                            timestamp_ms: now_ms(),
+                            sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+                            stream: "lifecycle".to_string(),
                         },
                     );
                     break;
@@ -303,11 +445,4 @@ fn spawn_exit_watcher(
 
 fn emit(app: &AppHandle, event: ServiceEvent) {
     let _ = app.emit("service://event", event);
-}
-
-fn now_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0)
 }

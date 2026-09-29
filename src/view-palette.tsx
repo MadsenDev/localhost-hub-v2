@@ -1,6 +1,7 @@
 import React from 'react';
 import type { HubDataShape } from './types';
 import { Ic } from './icons';
+import { tauriApi } from './tauri-api';
 
 interface PaletteItem {
   id: string;
@@ -56,7 +57,7 @@ export function CommandPalette({ open, onClose, data, onRunScript, onSwitchWs, o
     });
 
     data.ports.filter((p) => p.status === "running").forEach((p) => {
-      out.push({ id: "open-" + p.port, label: `Open localhost:${p.port}`, sub: "in browser", kind: "open", icon: <Ic.Globe size={13} />, run: () => {} });
+      out.push({ id: "open-" + p.port, label: `Open localhost:${p.port}`, sub: "in browser", kind: "open", icon: <Ic.Globe size={13} />, run: () => { tauriApi.openUrl(`http://localhost:${p.port}`); } });
     });
 
     Object.values(data.projects).forEach((p) => {

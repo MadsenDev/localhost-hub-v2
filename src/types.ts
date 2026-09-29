@@ -14,6 +14,7 @@ export interface Service {
   cpu: number;
   mem: number;
   framework: string;
+  managed?: boolean;
   _ws?: string;
 }
 
@@ -83,6 +84,9 @@ export interface Session {
   projects: number;
   services: number;
   badge?: string;
+  started_at_ms: number;
+  ended_at_ms: number | null;
+  status: string;
 }
 
 export interface LogLine {
@@ -90,6 +94,9 @@ export interface LogLine {
   src: string;
   msg: string;
   kind: 'ok' | 'info' | 'warn' | 'error';
+  run_id?: string;
+  timestamp_ms?: number;
+  stream?: string;
 }
 
 export interface Port {
@@ -115,11 +122,25 @@ export interface Repo {
   package_manager: string;
   scripts: Script[];
   has_env: boolean;
+  env_files: string[];
+  language: string;
+  has_readme: boolean;
+  has_license: boolean;
+  has_docker: boolean;
+  has_devcontainer: boolean;
+  dependencies: PackageEntry[];
+  dev_dependencies: PackageEntry[];
+  git: GitInfo | null;
   // live-derived
   is_running: boolean;
   running_port: number | null;
   cpu: number;
   mem: number;
+}
+
+export interface PackageEntry {
+  name: string;
+  version: string;
 }
 
 export interface StoredService {
@@ -139,7 +160,7 @@ export interface StoredWorkspace {
 
 export interface HubDataShape {
   workspaces: Workspace[];
-  projects: Record<string, Project>;
+  projects: Record<string, Repo>;
   activity: ActivityItem[];
   sessions: Session[];
   logSeeds: Record<string, { kind: LogLine['kind']; msg: string }[]>;

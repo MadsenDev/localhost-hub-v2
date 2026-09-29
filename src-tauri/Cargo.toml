@@ -45,3 +45,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Error handling
 anyhow = "1"
 thiserror = "1"
+
+# Durable local run/session history
+rusqlite = { version = "0.32", features = ["bundled"] }
